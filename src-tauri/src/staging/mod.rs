@@ -13,9 +13,13 @@
 //   * Conflict resolution (Bölüm 12.2.4): üzerine yaz / yeni isim /
 //     her ikisini koru / iptal.
 
+pub mod cross_volume;
 pub mod ops;
+pub mod wal;
 
+pub use cross_volume::{blake3_file, cross_volume_stage_file};
 pub use ops::{list_pending, stage, undo, StagedItem, STAGING_TTL_SECS};
+pub use wal::{recover_wal, WalRecoveryReport};
 
 use serde::Serialize;
 

@@ -33,7 +33,7 @@ fn staging_base() -> Result<PathBuf> {
     Ok(base.join("DSpace").join("staging"))
 }
 
-fn now_unix() -> i64 {
+pub fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -93,18 +93,31 @@ pub fn stage(path: &str, conn: &Connection) -> Result<StagedItem> {
         }
     }
 
-    // Cross-volume kontrol (Bölüm 12.3)
+    // Cross-volume kontrol (Bölüm 12.3) — two-phase commit yoluna dispatch
     let src_drive = first_drive_letter(&src);
     let dest_drive = first_drive_letter(&dest);
-    if src_drive.is_some() && dest_drive.is_some() && src_drive != dest_drive {
-        return Err(Error::Staging(format!(
-            "Cross-volume staging v0.2'de gelecek (Bölüm 12.3 two-phase commit). \
-             Kaynak={:?} → Hedef={:?}",
-            src_drive, dest_drive
-        )));
+    let is_cross = src_drive.is_some() && dest_drive.is_some() && src_drive != dest_drive;
+
+    if is_cross {
+        debug!(
+            src = %src.display(),
+            dest = %dest.display(),
+            "cross-volume tespit edildi → two-phase commit"
+        );
+        let target_vol = dest_drive
+            .map(|c| format!("{}:", c))
+            .unwrap_or_else(|| "?".into());
+        return crate::staging::cross_volume::cross_volume_stage_file(
+            &src,
+            &dest,
+            &target_vol,
+            size_bytes,
+            is_dir,
+            conn,
+        );
     }
 
-    debug!(src = %src.display(), dest = %dest.display(), "fs::rename");
+    debug!(src = %src.display(), dest = %dest.display(), "same-volume fs::rename");
     fs::rename(&src, &dest).map_err(|e| Error::Staging(format!("rename: {}", e)))?;
 
     let expires_at = staged_at + STAGING_TTL_SECS;

@@ -28,6 +28,7 @@ tokio = { version = "1", features = ["rt", "macros"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 rusqlite_migration = "1"
 dirs = "5"
+blake3 = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

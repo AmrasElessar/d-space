@@ -16,7 +16,7 @@ pub mod staging;
 pub mod volume;
 
 use crate::db::{db_info, open_db, DbInfo, DbState};
-use crate::staging::{list_pending, stage, undo, StagedItem};
+use crate::staging::{list_pending, recover_wal, stage, undo, StagedItem, WalRecoveryReport};
 use crate::error::{Error, Result};
 use crate::scan::{
     is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
@@ -207,6 +207,17 @@ fn list_staging(state: tauri::State<'_, DbState>) -> Result<Vec<StagedItem>> {
     list_pending(&conn)
 }
 
+/// Bölüm 12.3 — WAL recovery raporu (açılışta otomatik çağrılır, bu komut
+/// manuel re-run veya UI diagnostic için).
+#[tauri::command]
+fn run_wal_recovery(state: tauri::State<'_, DbState>) -> Result<WalRecoveryReport> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    recover_wal(&conn)
+}
+
 /// Bölüm 12.2.4 — staging item'ı orijinal yoluna geri taşır. Conflict varsa
 /// hata döner (v0.2'de conflict resolution dialog gelecek).
 #[tauri::command]
@@ -263,6 +274,20 @@ pub fn run() {
         }
     };
 
+    // Bölüm 12.3 — startup WAL recovery (crash sonrası BEGIN durumundaki
+    // entry'leri ABORTED'a çevir, ortalıkta kalan .dspace_tmp temizle).
+    {
+        let conn = db_state.conn.lock().expect("DB mutex poisoned");
+        match recover_wal(&conn) {
+            Ok(report) => {
+                if report.scanned > 0 {
+                    info!(?report, "açılış WAL recovery");
+                }
+            }
+            Err(e) => warn!(?e, "WAL recovery hatası"),
+        }
+    }
+
     tauri::Builder::default()
         .manage(db_state)
         .manage(ScanTreeState::default())
@@ -280,6 +305,7 @@ pub fn run() {
             stage_path,
             list_staging,
             undo_staging,
+            run_wal_recovery,
             get_db_info,
         ])
         .run(tauri::generate_context!())

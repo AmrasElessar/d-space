@@ -844,6 +844,21 @@ function scoreTierLabel(score: number | null): string {
         <li v-for="item in stagingList" :key="item.id" class="staging-row">
           <span class="staging-icon">{{ item.is_dir ? "📁" : "📄" }}</span>
           <span class="staging-path mono">{{ item.original_path }}</span>
+          <span
+            class="tier-pill"
+            :class="
+              item.fallback_tier === 'cross_volume'
+                ? 'tier-cross'
+                : 'tier-normal'
+            "
+            :title="
+              item.fallback_tier === 'cross_volume'
+                ? 'Cross-volume two-phase commit (Bölüm 12.3): Blake3 hash verify + WAL + atomik rename'
+                : 'Same-volume atomik rename (Bölüm 12.2)'
+            "
+          >
+            {{ item.fallback_tier === "cross_volume" ? "2PC" : "MOVE" }}
+          </span>
           <span class="staging-size mono">{{ formatBytes(item.size_bytes) }}</span>
           <span class="staging-time mono">{{ formatTime(item.staged_at_unix) }}</span>
           <button
@@ -903,8 +918,9 @@ function scoreTierLabel(score: number | null): string {
         <li class="done">Sunburst donut (Bölüm 9.1 Pillar 2) — SVG hand-rolled</li>
         <li class="done">Safe-to-delete kural motoru — 33 kural (Bölüm 6)</li>
         <li class="done">Staging + Undo same-volume (Bölüm 12.2)</li>
-        <li class="active">Cross-volume two-phase commit (Bölüm 12.3 WAL)</li>
-        <li>Time Machine / Snapshot (Bölüm 8)</li>
+        <li class="done">Cross-volume two-phase commit + WAL (Bölüm 12.3)</li>
+        <li class="active">Time Machine / Snapshot (Bölüm 8)</li>
+        <li>Duplicate Detector (Bölüm 7, Blake3 hazır)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
@@ -1314,7 +1330,7 @@ function scoreTierLabel(score: number | null): string {
 
 .staging-row {
   display: grid;
-  grid-template-columns: 22px 1fr 100px 150px 100px;
+  grid-template-columns: 22px 1fr 50px 100px 150px 100px;
   gap: 10px;
   align-items: center;
   padding: 6px 8px;
@@ -1322,6 +1338,28 @@ function scoreTierLabel(score: number | null): string {
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg);
+}
+
+.tier-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+}
+
+.tier-normal {
+  background: #14171c;
+  color: #6ee7b7;
+  border: 1px solid #14532d66;
+}
+
+.tier-cross {
+  background: #1e3a8a33;
+  color: #93c5fd;
+  border: 1px solid #1e3a8a;
 }
 
 .staging-icon {
