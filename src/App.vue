@@ -74,6 +74,15 @@ interface DspaceError {
   message: string;
 }
 
+interface DbInfo {
+  path: string;
+  schema_version: number;
+  journal_mode: string;
+  page_size: number;
+  table_count: number;
+  spec_version: string;
+}
+
 const info = ref<AppInfo | null>(null);
 const ipcError = ref<string | null>(null);
 
@@ -86,6 +95,9 @@ const probing = ref(false);
 const volumeInfo = ref<VolumeInfo | null>(null);
 const volumeError = ref<string | null>(null);
 const preFlighting = ref(false);
+
+const dbInfo = ref<DbInfo | null>(null);
+const dbError = ref<string | null>(null);
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -144,7 +156,12 @@ onMounted(async () => {
     info.value = await invoke<AppInfo>("get_app_info");
     privilege.value = await invoke<PrivilegeStatus>("check_privilege");
   } catch (err) {
-    ipcError.value = String(err);
+    ipcError.value = formatIpcError(err);
+  }
+  try {
+    dbInfo.value = await invoke<DbInfo>("get_db_info");
+  } catch (err) {
+    dbError.value = formatIpcError(err);
   }
 });
 
@@ -350,11 +367,43 @@ async function runProbe() {
     </section>
 
     <section class="card">
+      <h2>Veritabanı (Bölüm 14)</h2>
+      <div v-if="dbInfo" class="grid">
+        <div class="row">
+          <span class="key">Dosya</span>
+          <span class="val mono path">{{ dbInfo.path }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Schema</span>
+          <span class="val mono">v{{ dbInfo.schema_version }}</span>
+          <span class="pill pill-ok">{{ dbInfo.table_count }} tablo</span>
+        </div>
+        <div class="row">
+          <span class="key">Journal</span>
+          <span class="val mono">{{ dbInfo.journal_mode.toUpperCase() }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Page</span>
+          <span class="val mono">{{ dbInfo.page_size }} B</span>
+        </div>
+        <div class="row">
+          <span class="key">Spec</span>
+          <span class="val mono">{{ dbInfo.spec_version || "—" }}</span>
+        </div>
+      </div>
+      <p v-if="dbError" class="err">{{ dbError }}</p>
+    </section>
+
+    <section class="card">
       <h2>Yol Haritası</h2>
       <ol class="roadmap">
         <li class="done">Spec v1.4 donduruldu (37 bölüm, 4 edge case kapatıldı)</li>
-        <li class="active">Faz 1 implementasyon başlangıcı — proje iskeleti</li>
-        <li>MFT tarama motoru (Bölüm 5)</li>
+        <li class="done">Proje iskeleti — Tauri 2 + Vue 3 + GPL-3.0-or-later</li>
+        <li class="done">MFT probe + yetki kontrolü (Bölüm 5)</li>
+        <li class="done">Volume pre-flight (Bölüm 33.2 Katman 0)</li>
+        <li class="done">SQLite + migrations 0001 (Bölüm 14)</li>
+        <li class="active">MFT tam tarama + ScanTree builder (Bölüm 5 + 4.4)</li>
+        <li>FindFirstFile fallback (Bölüm 5.2A Katman 2)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
@@ -537,6 +586,12 @@ async function runProbe() {
   color: #6ee7b7;
   text-decoration: line-through;
   text-decoration-color: #6ee7b766;
+}
+
+.path {
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--muted);
 }
 
 .roadmap li.active {

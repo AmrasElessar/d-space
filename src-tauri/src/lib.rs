@@ -15,11 +15,12 @@ pub mod snapshot;
 pub mod staging;
 pub mod volume;
 
-use crate::error::Result;
+use crate::db::{db_info, open_db, DbInfo, DbState};
+use crate::error::{Error, Result};
 use crate::scan::{is_elevated, pick_strategy, probe_ntfs, MftProbe, ScanStrategy};
 use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Serialize)]
 pub struct AppInfo {
@@ -78,7 +79,17 @@ async fn pre_flight_volume(drive: String) -> Result<VolumeInfo> {
 async fn probe_volume(drive: String) -> Result<MftProbe> {
     tokio::task::spawn_blocking(move || probe_ntfs(&drive))
         .await
-        .map_err(|e| crate::error::Error::Scan(format!("join hatası: {}", e)))?
+        .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
+}
+
+/// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
+#[tauri::command]
+fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    db_info(&conn)
 }
 
 fn init_tracing() {
@@ -103,13 +114,25 @@ pub fn run() {
         "D-Space başlatılıyor"
     );
 
+    let db_state = match open_db() {
+        Ok(conn) => DbState::new(conn),
+        Err(e) => {
+            warn!(?e, "DB açılamadı — geçici in-memory ile devam");
+            let conn = rusqlite::Connection::open_in_memory()
+                .expect("in-memory SQLite açılamadı");
+            DbState::new(conn)
+        }
+    };
+
     tauri::Builder::default()
+        .manage(db_state)
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             check_privilege,
             pre_flight_volume,
             probe_volume,
+            get_db_info,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
