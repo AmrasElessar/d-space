@@ -13,6 +13,10 @@
 //   * Battery + idle throttle (Bölüm 6.5.3).
 //   * v2 stub trait (Bölüm 26.1).
 
+pub mod rules;
+
+pub use rules::{match_rule, Rule, RULES};
+
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]

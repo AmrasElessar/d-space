@@ -35,6 +35,10 @@ pub struct Node {
     pub data_size: u64,
     pub aggregate_size: u64,
     pub is_dir: bool,
+    /// Bölüm 6 safe-to-delete skor (0-100). None = eşleşen kural yok.
+    pub score: Option<u8>,
+    pub score_rule: Option<&'static str>,
+    pub score_reason: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,11 +80,17 @@ pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
     let mut children: HashMap<NodeId, Vec<NodeId>> = HashMap::with_capacity(count / 8 + 1);
 
     // 1. Düğüm yerleştirme — self-cycle (record == parent) None.
+    //    Aynı zamanda Bölüm 6 safe-to-delete kuralları uygulanır.
     for e in &raw {
         let parent_opt = if e.parent_record_no == e.record_no {
             None
         } else {
             Some(e.parent_record_no)
+        };
+        let rule_match = crate::safe_delete::match_rule(&e.name, e.is_dir);
+        let (score, score_rule, score_reason) = match rule_match {
+            Some(r) => (Some(r.score), Some(r.id), Some(r.explanation)),
+            None => (None, None, None),
         };
         nodes.insert(
             e.record_no,
@@ -91,6 +101,9 @@ pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
                 data_size: e.data_size,
                 aggregate_size: e.data_size,
                 is_dir: e.is_dir,
+                score,
+                score_rule,
+                score_reason,
             },
         );
     }
@@ -103,6 +116,9 @@ pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
         data_size: 0,
         aggregate_size: 0,
         is_dir: true,
+        score: None,
+        score_rule: None,
+        score_reason: None,
     });
 
     // 2. Orphan parent rewiring: bilinmeyen parent → ROOT_RECORD.

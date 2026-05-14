@@ -14,6 +14,9 @@ interface TreeNode {
   data_size: number;
   aggregate_size: number;
   is_dir: boolean;
+  score: number | null;
+  score_rule: string | null;
+  score_reason: string | null;
 }
 
 interface WindowResult {

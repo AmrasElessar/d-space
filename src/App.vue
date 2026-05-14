@@ -118,6 +118,9 @@ interface TreeNode {
   data_size: number;
   aggregate_size: number;
   is_dir: boolean;
+  score: number | null;
+  score_rule: string | null;
+  score_reason: string | null;
 }
 
 type SortKey = "size_desc" | "name_asc" | "data_size_desc";
@@ -337,6 +340,22 @@ function percentOf(part: number, whole: number): string {
   const pct = (part / whole) * 100;
   if (pct < 0.1) return "<0.1%";
   return `${pct.toFixed(1)}%`;
+}
+
+function scoreTierClass(score: number | null): string {
+  if (score === null) return "";
+  if (score <= 30) return "score-danger";
+  if (score <= 60) return "score-caution";
+  if (score <= 85) return "score-likely";
+  return "score-cache";
+}
+
+function scoreTierLabel(score: number | null): string {
+  if (score === null) return "—";
+  if (score <= 30) return "DOKUNMA";
+  if (score <= 60) return "İNCELE";
+  if (score <= 85) return "BÜYÜK İHTİMAL";
+  return "CACHE";
 }
 </script>
 
@@ -671,6 +690,15 @@ function percentOf(part: number, whole: number): string {
         >
           <span class="drill-icon">{{ n.is_dir ? "📁" : "📄" }}</span>
           <span class="drill-name mono">{{ n.name }}</span>
+          <span
+            v-if="n.score !== null"
+            class="score-pill"
+            :class="scoreTierClass(n.score)"
+            :title="n.score_reason ?? ''"
+          >
+            {{ n.score }} · {{ scoreTierLabel(n.score) }}
+          </span>
+          <span v-else class="score-pill score-none">—</span>
           <span class="drill-bar-inner">
             <span
               class="drill-fill"
@@ -732,8 +760,9 @@ function percentOf(part: number, whole: number): string {
         <li class="done">FindFirstFile fallback + auto-strategy (Bölüm 5.2A K2)</li>
         <li class="done">Lazy viewport query + drilldown (Bölüm 9.6)</li>
         <li class="done">Sunburst donut (Bölüm 9.1 Pillar 2) — SVG hand-rolled</li>
-        <li class="active">Safe-to-delete kural motoru (Bölüm 6)</li>
-        <li>Staging + Undo + WAL (Bölüm 12)</li>
+        <li class="done">Safe-to-delete kural motoru — 33 kural (Bölüm 6)</li>
+        <li class="active">Staging + Undo + WAL (Bölüm 12)</li>
+        <li>Time Machine / Snapshot (Bölüm 8)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
@@ -1074,13 +1103,54 @@ function percentOf(part: number, whole: number): string {
 
 .drill-row {
   display: grid;
-  grid-template-columns: 22px 1fr 120px 60px 100px;
+  grid-template-columns: 22px 1fr 130px 100px 60px 100px;
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
   font-size: 13px;
   border-radius: 6px;
   border: 1px solid transparent;
+}
+
+.score-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-align: center;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+
+.score-danger {
+  background: #7f1d1d33;
+  color: #fca5a5;
+  border: 1px solid #7f1d1d80;
+}
+
+.score-caution {
+  background: #78350f33;
+  color: #fcd34d;
+  border: 1px solid #78350f80;
+}
+
+.score-likely {
+  background: #14532d33;
+  color: #6ee7b7;
+  border: 1px solid #14532d80;
+}
+
+.score-cache {
+  background: #1e3a8a33;
+  color: #93c5fd;
+  border: 1px solid #1e3a8a80;
+}
+
+.score-none {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border);
 }
 
 .drill-dir {
