@@ -1,0 +1,68 @@
+# Rust / Cargo
+target/
+**/*.rs.bk
+*.pdb
+Cargo.lock.bak
+
+# Node / npm / pnpm
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/WixTools/
+src-tauri/Brewfile.lock.json
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# Editors / IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+.fleet/
+
+# OS
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+.DS_Store
+
+# Logs & local data
+*.log
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+.dspace-local/
+
+# Test artifacts
+coverage/
+*.lcov
+playwright-report/
+test-results/
+
+# Misc
+*.bak
+*.tmp
+.cache/

@@ -1,0 +1,28 @@
+{
+  "name": "dspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "D-Space — Windows için akıllı disk analiz ve geri kazanım platformu",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3",
+    "vue-tsc": "^2.1.10",
+    "@tauri-apps/cli": "^2"
+  }
+}

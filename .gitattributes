@@ -1,0 +1,27 @@
+# Default: normalize line endings to LF in repo
+* text=auto eol=lf
+
+# Windows-specific scripts keep CRLF in working tree
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Treat as binary (no line-ending or diff transforms)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
