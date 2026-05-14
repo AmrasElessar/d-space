@@ -32,6 +32,43 @@ interface MftProbe {
   elapsed_ms: number;
 }
 
+type VolumeStatusKind =
+  | "Ready"
+  | "BitLockerLocked"
+  | "BitLockerSuspended"
+  | "Encrypted"
+  | "NotMounted"
+  | "AccessDenied"
+  | "NotFormatted"
+  | "UnsupportedDriveType";
+
+interface VolumeStatus {
+  kind: VolumeStatusKind;
+  data?: { method?: string; drive_type?: number };
+}
+
+type DriveKind =
+  | "Unknown"
+  | "NoRootDir"
+  | "Removable"
+  | "Fixed"
+  | "Remote"
+  | "CdRom"
+  | "RamDisk";
+
+interface VolumeInfo {
+  drive_letter: string;
+  root_path: string;
+  file_system: string;
+  volume_label: string;
+  volume_serial: number;
+  drive_kind: DriveKind;
+  total_bytes: number;
+  free_bytes: number;
+  status: VolumeStatus;
+  elapsed_ms: number;
+}
+
 interface DspaceError {
   kind: string;
   message: string;
@@ -46,8 +83,49 @@ const probe = ref<MftProbe | null>(null);
 const probeError = ref<string | null>(null);
 const probing = ref(false);
 
+const volumeInfo = ref<VolumeInfo | null>(null);
+const volumeError = ref<string | null>(null);
+const preFlighting = ref(false);
+
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
+}
+
+function formatBytes(b: number): string {
+  if (b <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = b;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i >= 3 ? 2 : 0)} ${units[i]}`;
+}
+
+function volumeStatusLabel(s: VolumeStatus): string {
+  switch (s.kind) {
+    case "Ready":
+      return "Hazır";
+    case "BitLockerLocked":
+      return "BitLocker kilitli";
+    case "BitLockerSuspended":
+      return "BitLocker askıda";
+    case "Encrypted":
+      return `Şifreli (${s.data?.method ?? "bilinmeyen"})`;
+    case "NotMounted":
+      return "Bağlı değil";
+    case "AccessDenied":
+      return "Erişim engellendi";
+    case "NotFormatted":
+      return "Formatsız";
+    case "UnsupportedDriveType":
+      return `Desteklenmeyen sürücü (${s.data?.drive_type ?? "?"})`;
+  }
+}
+
+function statusPillClass(s: VolumeStatus): string {
+  return s.kind === "Ready" ? "pill-ok" : "pill-warn";
 }
 
 function strategyLabel(s: ScanStrategy): string {
@@ -70,6 +148,28 @@ onMounted(async () => {
   }
 });
 
+function formatIpcError(err: unknown): string {
+  if (typeof err === "string") return err;
+  const e = err as DspaceError;
+  if (e && e.kind && e.message) return `[${e.kind}] ${e.message}`;
+  return JSON.stringify(err);
+}
+
+async function runPreFlight() {
+  preFlighting.value = true;
+  volumeError.value = null;
+  volumeInfo.value = null;
+  try {
+    volumeInfo.value = await invoke<VolumeInfo>("pre_flight_volume", {
+      drive: drive.value,
+    });
+  } catch (err) {
+    volumeError.value = formatIpcError(err);
+  } finally {
+    preFlighting.value = false;
+  }
+}
+
 async function runProbe() {
   probing.value = true;
   probeError.value = null;
@@ -79,9 +179,7 @@ async function runProbe() {
       drive: drive.value,
     });
   } catch (err) {
-    const e = err as DspaceError | string;
-    probeError.value =
-      typeof e === "string" ? e : `[${e.kind}] ${e.message}`;
+    probeError.value = formatIpcError(err);
   } finally {
     probing.value = false;
   }
@@ -138,6 +236,69 @@ async function runProbe() {
           <span class="val">{{ strategyLabel(privilege.strategy) }}</span>
         </div>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Volume Pre-Flight (Bölüm 33.2 Katman 0)</h2>
+      <div class="probe-bar">
+        <input
+          v-model="drive"
+          maxlength="3"
+          spellcheck="false"
+          class="drive-input mono"
+          aria-label="Sürücü harfi"
+        />
+        <button
+          type="button"
+          class="probe-btn"
+          :disabled="preFlighting"
+          @click="runPreFlight"
+        >
+          {{ preFlighting ? "Sorgulanıyor…" : "Pre-flight" }}
+        </button>
+      </div>
+      <div v-if="volumeInfo" class="grid">
+        <div class="row">
+          <span class="key">Durum</span>
+          <span class="val">{{ volumeStatusLabel(volumeInfo.status) }}</span>
+          <span class="pill" :class="statusPillClass(volumeInfo.status)">
+            {{ volumeInfo.status.kind }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Sürücü</span>
+          <span class="val mono">{{ volumeInfo.root_path }}</span>
+        </div>
+        <div class="row">
+          <span class="key">FS</span>
+          <span class="val mono">{{ volumeInfo.file_system || "—" }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Etiket</span>
+          <span class="val">{{ volumeInfo.volume_label || "—" }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Serial</span>
+          <span class="val mono">{{ formatHex(volumeInfo.volume_serial) }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Tip</span>
+          <span class="val">{{ volumeInfo.drive_kind }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Toplam</span>
+          <span class="val mono">{{ formatBytes(volumeInfo.total_bytes) }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Boş</span>
+          <span class="val mono">{{ formatBytes(volumeInfo.free_bytes) }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Süre</span>
+          <span class="val mono">{{ volumeInfo.elapsed_ms }} ms</span>
+        </div>
+      </div>
+      <p v-if="volumeError" class="err">{{ volumeError }}</p>
     </section>
 
     <section class="card">

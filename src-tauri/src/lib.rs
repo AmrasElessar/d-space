@@ -17,6 +17,7 @@ pub mod volume;
 
 use crate::error::Result;
 use crate::scan::{is_elevated, pick_strategy, probe_ntfs, MftProbe, ScanStrategy};
+use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
 use tracing::info;
 
@@ -62,6 +63,15 @@ fn check_privilege() -> PrivilegeStatus {
     PrivilegeStatus { elevated, strategy }
 }
 
+/// Bölüm 33.2 Katman 0 — tarama denemesinden ÖNCE volume statüsü kontrolü.
+/// Kullanıcı-uzayı Win32 API'leri, admin gerekmez.
+#[tauri::command]
+async fn pre_flight_volume(drive: String) -> Result<VolumeInfo> {
+    tokio::task::spawn_blocking(move || pre_flight_check(&drive))
+        .await
+        .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
+}
+
 /// Bölüm 5.1–5.3 — raw volume aç, NTFS boot sector parse et, metadata dön.
 /// Yönetici yetkisi yoksa ACCESS_DENIED → Error::Scan.
 #[tauri::command]
@@ -98,6 +108,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             check_privilege,
+            pre_flight_volume,
             probe_volume,
         ])
         .run(tauri::generate_context!())

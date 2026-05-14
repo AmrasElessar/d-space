@@ -6,9 +6,14 @@
 // kilitli sürücüde Katman A/B/C sonsuz recursive deneme yapmasın diye
 // Katman 0 olarak eklendi (v1.4 race condition kapatma).
 
+pub mod preflight;
+
+pub use preflight::pre_flight_check;
+
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", content = "data")]
 pub enum VolumeStatus {
     Ready,
     BitLockerLocked,
@@ -17,13 +22,46 @@ pub enum VolumeStatus {
     NotMounted,
     AccessDenied,
     NotFormatted,
+    UnsupportedDriveType { drive_type: u32 },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum DriveKind {
+    Unknown,
+    NoRootDir,
+    Removable,
+    Fixed,
+    Remote,
+    CdRom,
+    RamDisk,
+}
+
+impl DriveKind {
+    /// Win32 GetDriveTypeW dönüş değerini eşler.
+    pub fn from_win32(code: u32) -> Self {
+        match code {
+            0 => Self::Unknown,
+            1 => Self::NoRootDir,
+            2 => Self::Removable,
+            3 => Self::Fixed,
+            4 => Self::Remote,
+            5 => Self::CdRom,
+            6 => Self::RamDisk,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct VolumeInfo {
     pub drive_letter: String,
+    pub root_path: String,
     pub file_system: String,
+    pub volume_label: String,
+    pub volume_serial: u32,
+    pub drive_kind: DriveKind,
     pub total_bytes: u64,
     pub free_bytes: u64,
     pub status: VolumeStatus,
+    pub elapsed_ms: u64,
 }
