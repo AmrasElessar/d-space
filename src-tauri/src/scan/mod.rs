@@ -11,11 +11,13 @@
 //   * Hot-path izolasyonu: VSS scan sırasında ASLA çalışmaz
 //     (bkz. `locked_file` Bölüm 34.5.1).
 
+pub mod find_first;
 pub mod mft;
 pub mod privilege;
 pub mod tree;
 pub mod walk;
 
+pub use find_first::scan_find_first;
 pub use mft::{probe_ntfs, MftProbe};
 pub use privilege::is_elevated;
 pub use tree::{

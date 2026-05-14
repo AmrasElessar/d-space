@@ -11,8 +11,10 @@
 // tam ağaca sahip olmaz — sadece `tree_summary` ve `top_consumers` window
 // query'leri ile çalışır (Bölüm 9.6 lazy viewport).
 
+use crate::scan::find_first::scan_find_first;
+use crate::scan::privilege::is_elevated;
 use crate::scan::walk::{collect_mft_entries, RawMftEntry};
-use crate::scan::NodeId;
+use crate::scan::{NodeId, ScanStrategy};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,6 +54,7 @@ pub struct ScanTree {
 pub struct ScanSummary {
     pub drive: String,
     pub volume_id: String,
+    pub strategy: ScanStrategy,
     pub root_id: NodeId,
     pub node_count: u64,
     pub file_count: u64,
@@ -209,17 +212,49 @@ pub fn top_consumers(tree: &ScanTree, parent: NodeId, limit: usize) -> Vec<Node>
     out
 }
 
-/// `collect_mft_entries` + `build_tree` zincirleyen üst-seviye API.
-pub fn scan_to_tree(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
-    debug!(drive, "full scan başlıyor");
+/// `collect_mft_entries` + `build_tree` zincirleyen MFT-only API.
+pub fn scan_to_tree_mft(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    debug!(drive, "MFT full scan başlıyor");
     let collected = collect_mft_entries(drive)?;
+    chain_into_summary(drive, ScanStrategy::DirectRawVolume, collected)
+}
+
+/// `scan_find_first` + `build_tree` zincirleyen FindFirstFile fallback API.
+pub fn scan_to_tree_fallback(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    debug!(drive, "FindFirstFile fallback scan başlıyor");
+    let collected = scan_find_first(drive)?;
+    chain_into_summary(drive, ScanStrategy::FindFirstFileFallback, collected)
+}
+
+/// Bölüm 5.2A — yetkiye göre otomatik strateji seçimi. MFT denenir, başarısız
+/// olursa fallback'e düşer (Bölüm 33.2 Katman A → Katman B pattern).
+pub fn scan_to_tree(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    if is_elevated() {
+        debug!("elevated process — MFT yolu denenecek");
+        match scan_to_tree_mft(drive) {
+            Ok(r) => return Ok(r),
+            Err(e) => {
+                tracing::warn!(?e, "MFT path başarısız → fallback");
+            }
+        }
+    } else {
+        debug!("elevated değil — fallback yolu");
+    }
+    scan_to_tree_fallback(drive)
+}
+
+fn chain_into_summary(
+    drive: &str,
+    strategy: ScanStrategy,
+    collected: crate::scan::walk::MftEntries,
+) -> crate::error::Result<(ScanSummary, ScanTree)> {
     let collect_elapsed_ms = collected.elapsed_ms;
     let volume_id = collected.volume_path.clone();
     let tree = build_tree(volume_id.clone(), collected.entries);
-
     let summary = ScanSummary {
         drive: drive.to_string(),
         volume_id,
+        strategy,
         root_id: tree.root_id,
         node_count: tree.nodes.len() as u64,
         file_count: tree.file_count,

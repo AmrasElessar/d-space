@@ -100,6 +100,7 @@ interface MftWalkStats {
 interface ScanSummary {
   drive: string;
   volume_id: string;
+  strategy: ScanStrategy;
   root_id: number;
   node_count: number;
   file_count: number;
@@ -521,6 +522,20 @@ async function runFullScan() {
       </div>
       <div v-if="scanSummary" class="grid">
         <div class="row">
+          <span class="key">Strateji</span>
+          <span class="val">{{ strategyLabel(scanSummary.strategy) }}</span>
+          <span
+            class="pill"
+            :class="
+              scanSummary.strategy === 'DirectRawVolume'
+                ? 'pill-ok'
+                : 'pill-warn'
+            "
+          >
+            {{ scanSummary.strategy === "DirectRawVolume" ? "MFT" : "FALLBACK" }}
+          </span>
+        </div>
+        <div class="row">
           <span class="key">Düğüm</span>
           <span class="val mono">
             {{ scanSummary.node_count.toLocaleString("tr-TR") }}
@@ -602,8 +617,9 @@ async function runFullScan() {
         <li class="done">SQLite + migrations 0001 (Bölüm 14)</li>
         <li class="done">MFT full walk v0.1 (Bölüm 5.1 + 4.3 Adım 2)</li>
         <li class="done">ScanTree builder + agregat boyutlar (Bölüm 4.3+4.4)</li>
-        <li class="active">FindFirstFile fallback (Bölüm 5.2A Katman 2)</li>
-        <li>Lazy viewport query API + sunburst (Bölüm 9.6 + 9)</li>
+        <li class="done">FindFirstFile fallback + auto-strategy (Bölüm 5.2A K2)</li>
+        <li class="active">Lazy viewport query API (Bölüm 9.6 tree_window)</li>
+        <li>Sunburst görselleştirme (Bölüm 9, D3.js)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
