@@ -3,6 +3,7 @@
 import { ref, onMounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import Sunburst from "./components/Sunburst.vue";
+import SnapshotPanel from "./components/SnapshotPanel.vue";
 
 interface AppInfo {
   name: string;
@@ -874,6 +875,8 @@ function scoreTierLabel(score: number | null): string {
       </ul>
       <p v-if="stagingError" class="err">{{ stagingError }}</p>
     </section>
+
+    <SnapshotPanel />
 
     <section class="card">
       <h2>Veritabanı (Bölüm 14)</h2>

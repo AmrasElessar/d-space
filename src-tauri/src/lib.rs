@@ -23,6 +23,7 @@ use crate::scan::{
     window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
     SortKey, WindowResult,
 };
+use crate::snapshot::{DeltaResult, SnapshotMeta};
 use std::sync::Arc;
 use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
@@ -242,6 +243,56 @@ fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
     db_info(&conn)
 }
 
+/// Bölüm 8 — mevcut taranmış ScanTree'den bir snapshot yakalar. `scan_full`
+/// önce çağrılmış olmalı. Yalnızca dizinler `snapshot_entries`'e yazılır
+/// (v0.1 dir-only; Bölüm 8.6 dosya streaming v0.2'de gelir).
+#[tauri::command]
+fn capture_snapshot(
+    scan_state: tauri::State<'_, ScanTreeState>,
+    db_state: tauri::State<'_, DbState>,
+) -> Result<SnapshotMeta> {
+    let tree_arc = {
+        let guard = scan_state
+            .current
+            .read()
+            .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
+        guard
+            .as_ref()
+            .ok_or_else(|| Error::Snapshot("scan_full henüz çağrılmadı".into()))?
+            .clone()
+    };
+    let mut conn = db_state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    crate::snapshot::capture_snapshot(&tree_arc, &mut conn)
+}
+
+/// Bölüm 8 — son 50 snapshot'ı captured_at DESC sırasında döner.
+#[tauri::command]
+fn list_snapshots(db_state: tauri::State<'_, DbState>) -> Result<Vec<SnapshotMeta>> {
+    let conn = db_state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    crate::snapshot::list_snapshots(&conn)
+}
+
+/// Bölüm 8.6 — iki snapshot ID arasındaki delta (added/removed/grew/shrunk
+/// top-10 + net byte change).
+#[tauri::command]
+fn snapshot_delta(
+    from: i64,
+    to: i64,
+    db_state: tauri::State<'_, DbState>,
+) -> Result<DeltaResult> {
+    let conn = db_state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    crate::snapshot::compute_delta(from, to, &conn)
+}
+
 fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
 
@@ -307,6 +358,9 @@ pub fn run() {
             undo_staging,
             run_wal_recovery,
             get_db_info,
+            capture_snapshot,
+            list_snapshots,
+            snapshot_delta,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
