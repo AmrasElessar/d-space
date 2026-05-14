@@ -84,6 +84,17 @@ interface DbInfo {
   spec_version: string;
 }
 
+interface StagedItem {
+  id: number;
+  original_path: string;
+  staged_path: string;
+  size_bytes: number;
+  staged_at_unix: number;
+  expires_at_unix: number;
+  is_dir: boolean;
+  fallback_tier: string;
+}
+
 interface MftWalkStats {
   drive: string;
   volume_path: string;
@@ -164,6 +175,11 @@ const sortKey = ref<SortKey>("size_desc");
 const windowError = ref<string | null>(null);
 const windowLoading = ref(false);
 
+const stagingList = ref<StagedItem[]>([]);
+const stagingError = ref<string | null>(null);
+const stagingBusyId = ref<number | null>(null);
+const stagePendingPath = ref<string | null>(null);
+
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
 }
@@ -228,6 +244,7 @@ onMounted(async () => {
   } catch (err) {
     dbError.value = formatIpcError(err);
   }
+  await refreshStaging();
 });
 
 function formatIpcError(err: unknown): string {
@@ -348,6 +365,75 @@ function scoreTierClass(score: number | null): string {
   if (score <= 60) return "score-caution";
   if (score <= 85) return "score-likely";
   return "score-cache";
+}
+
+function driveLetter(): string {
+  const m = drive.value.toUpperCase().match(/[A-Z]/);
+  return m ? m[0] : "C";
+}
+
+function nodeFullPath(n: TreeNode): string {
+  const letter = driveLetter();
+  const parts = breadcrumb.value.slice(1).map((b) => b.name);
+  parts.push(n.name);
+  return `${letter}:\\${parts.join("\\")}`;
+}
+
+function formatTime(unix: number): string {
+  if (!unix) return "—";
+  const d = new Date(unix * 1000);
+  return d.toLocaleString("tr-TR");
+}
+
+async function refreshStaging() {
+  try {
+    stagingList.value = await invoke<StagedItem[]>("list_staging");
+  } catch (err) {
+    stagingError.value = formatIpcError(err);
+  }
+}
+
+async function confirmStage(node: TreeNode) {
+  const path = nodeFullPath(node);
+  if (stagePendingPath.value === path) {
+    // Confirmed
+    stagePendingPath.value = null;
+    stagingBusyId.value = node.id;
+    stagingError.value = null;
+    try {
+      await invoke<StagedItem>("stage_path", { path });
+      await refreshStaging();
+      if (viewWindow.value) {
+        await loadWindow(viewWindow.value.parent_id);
+      }
+    } catch (err) {
+      stagingError.value = formatIpcError(err);
+    } finally {
+      stagingBusyId.value = null;
+    }
+  } else {
+    stagePendingPath.value = path;
+  }
+}
+
+function cancelStage() {
+  stagePendingPath.value = null;
+}
+
+async function runUndo(id: number) {
+  stagingBusyId.value = id;
+  stagingError.value = null;
+  try {
+    await invoke<string>("undo_staging", { id });
+    await refreshStaging();
+    if (viewWindow.value) {
+      await loadWindow(viewWindow.value.parent_id);
+    }
+  } catch (err) {
+    stagingError.value = formatIpcError(err);
+  } finally {
+    stagingBusyId.value = null;
+  }
 }
 
 function scoreTierLabel(score: number | null): string {
@@ -713,10 +799,65 @@ function scoreTierLabel(score: number | null): string {
           <span class="drill-size mono">
             {{ formatBytes(n.aggregate_size) }}
           </span>
+          <span class="drill-actions" @click.stop>
+            <template v-if="stagePendingPath === nodeFullPath(n)">
+              <button
+                type="button"
+                class="stage-btn stage-confirm"
+                :disabled="stagingBusyId === n.id"
+                @click="confirmStage(n)"
+              >
+                ✓ Onayla
+              </button>
+              <button
+                type="button"
+                class="stage-btn stage-cancel"
+                @click="cancelStage"
+              >
+                ✕
+              </button>
+            </template>
+            <button
+              v-else
+              type="button"
+              class="stage-btn"
+              :disabled="stagingBusyId === n.id"
+              title="Staging'e gönder (24h içinde geri alınabilir)"
+              @click="confirmStage(n)"
+            >
+              📥
+            </button>
+          </span>
         </li>
         <li v-if="windowLoading" class="drill-loading">Yükleniyor…</li>
       </ul>
       <p v-if="windowError" class="err">{{ windowError }}</p>
+    </section>
+
+    <section class="card">
+      <h2>Staging Kuyruğu (Bölüm 12)</h2>
+      <p class="muted" v-if="stagingList.length === 0 && !stagingError">
+        Henüz staging'e atılmış öğe yok. Drilldown'da 📥 butonu ile gönderebilirsin —
+        24 saat içinde ↩ ile geri alınabilir.
+      </p>
+      <ul v-if="stagingList.length" class="staging-list">
+        <li v-for="item in stagingList" :key="item.id" class="staging-row">
+          <span class="staging-icon">{{ item.is_dir ? "📁" : "📄" }}</span>
+          <span class="staging-path mono">{{ item.original_path }}</span>
+          <span class="staging-size mono">{{ formatBytes(item.size_bytes) }}</span>
+          <span class="staging-time mono">{{ formatTime(item.staged_at_unix) }}</span>
+          <button
+            type="button"
+            class="stage-btn"
+            :disabled="stagingBusyId === item.id"
+            title="Orijinal yoluna geri taşı"
+            @click="runUndo(item.id)"
+          >
+            ↩ Undo
+          </button>
+        </li>
+      </ul>
+      <p v-if="stagingError" class="err">{{ stagingError }}</p>
     </section>
 
     <section class="card">
@@ -761,7 +902,8 @@ function scoreTierLabel(score: number | null): string {
         <li class="done">Lazy viewport query + drilldown (Bölüm 9.6)</li>
         <li class="done">Sunburst donut (Bölüm 9.1 Pillar 2) — SVG hand-rolled</li>
         <li class="done">Safe-to-delete kural motoru — 33 kural (Bölüm 6)</li>
-        <li class="active">Staging + Undo + WAL (Bölüm 12)</li>
+        <li class="done">Staging + Undo same-volume (Bölüm 12.2)</li>
+        <li class="active">Cross-volume two-phase commit (Bölüm 12.3 WAL)</li>
         <li>Time Machine / Snapshot (Bölüm 8)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
@@ -1103,13 +1245,106 @@ function scoreTierLabel(score: number | null): string {
 
 .drill-row {
   display: grid;
-  grid-template-columns: 22px 1fr 130px 100px 60px 100px;
+  grid-template-columns: 22px 1fr 130px 100px 60px 100px 130px;
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
   font-size: 13px;
   border-radius: 6px;
   border: 1px solid transparent;
+}
+
+.drill-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.stage-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.stage-btn:hover:not(:disabled) {
+  background: #1f6f7c33;
+  border-color: #24c8db66;
+}
+
+.stage-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stage-confirm {
+  background: #14532d66;
+  border-color: #14532d;
+  color: #6ee7b7;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.stage-confirm:hover:not(:disabled) {
+  background: #14532daa;
+}
+
+.stage-cancel {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+.staging-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.staging-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 100px 150px 100px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.staging-icon {
+  text-align: center;
+}
+
+.staging-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: 11px;
+}
+
+.staging-size {
+  text-align: right;
+  color: #6ee7b7;
+}
+
+.staging-time {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
 }
 
 .score-pill {

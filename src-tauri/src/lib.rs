@@ -16,6 +16,7 @@ pub mod staging;
 pub mod volume;
 
 use crate::db::{db_info, open_db, DbInfo, DbState};
+use crate::staging::{list_pending, stage, undo, StagedItem};
 use crate::error::{Error, Result};
 use crate::scan::{
     is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
@@ -182,6 +183,44 @@ fn tree_path(state: tauri::State<'_, ScanTreeState>, id: u64) -> Result<Vec<Node
     Ok(node_path(tree, id))
 }
 
+/// Bölüm 12.2 — staging: dosyayı `%LOCALAPPDATA%\DSpace\staging\<ts>` altına
+/// atomik MOVE eder ve `staging_items` tablosuna kayıt düşer. 24h undo penceresi.
+#[tauri::command]
+fn stage_path(
+    path: String,
+    state: tauri::State<'_, DbState>,
+) -> Result<StagedItem> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    stage(&path, &conn)
+}
+
+/// Bölüm 12.2 — bekleyen tüm staging item'larını listeler (staged_at DESC).
+#[tauri::command]
+fn list_staging(state: tauri::State<'_, DbState>) -> Result<Vec<StagedItem>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    list_pending(&conn)
+}
+
+/// Bölüm 12.2.4 — staging item'ı orijinal yoluna geri taşır. Conflict varsa
+/// hata döner (v0.2'de conflict resolution dialog gelecek).
+#[tauri::command]
+fn undo_staging(
+    id: i64,
+    state: tauri::State<'_, DbState>,
+) -> Result<String> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    undo(id, &conn)
+}
+
 /// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
 #[tauri::command]
 fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
@@ -238,6 +277,9 @@ pub fn run() {
             tree_top_consumers,
             tree_window,
             tree_path,
+            stage_path,
+            list_staging,
+            undo_staging,
             get_db_info,
         ])
         .run(tauri::generate_context!())

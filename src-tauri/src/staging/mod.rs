@@ -13,18 +13,11 @@
 //   * Conflict resolution (Bölüm 12.2.4): üzerine yaz / yeni isim /
 //     her ikisini koru / iptal.
 
-use serde::Serialize;
+pub mod ops;
 
-#[derive(Debug, Serialize)]
-pub struct StagedItem {
-    pub id: i64,
-    pub original_path: String,
-    pub staged_path: String,
-    pub size_bytes: u64,
-    pub staged_at_unix: i64,
-    pub expires_at_unix: i64,
-    pub fallback_tier: FallbackTier,
-}
+pub use ops::{list_pending, stage, undo, StagedItem, STAGING_TTL_SECS};
+
+use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub enum FallbackTier {
