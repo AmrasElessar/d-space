@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import Sunburst from "./components/Sunburst.vue";
 
 interface AppInfo {
   name: string;
@@ -154,7 +155,7 @@ const scanSummary = ref<ScanSummary | null>(null);
 const scanError = ref<string | null>(null);
 const scanning = ref(false);
 
-const window = ref<WindowResult | null>(null);
+const viewWindow = ref<WindowResult | null>(null);
 const breadcrumb = ref<TreeNode[]>([]);
 const sortKey = ref<SortKey>("size_desc");
 const windowError = ref<string | null>(null);
@@ -288,7 +289,7 @@ async function loadWindow(parentId: number) {
       limit: 200,
       offset: 0,
     });
-    window.value = w;
+    viewWindow.value = w;
     breadcrumb.value = await invoke<TreeNode[]>("tree_path", { id: parentId });
   } catch (err) {
     windowError.value = formatIpcError(err);
@@ -301,7 +302,7 @@ async function runFullScan() {
   scanning.value = true;
   scanError.value = null;
   scanSummary.value = null;
-  window.value = null;
+  viewWindow.value = null;
   breadcrumb.value = [];
   try {
     scanSummary.value = await invoke<ScanSummary>("scan_full", {
@@ -326,8 +327,8 @@ function goUp(id: number) {
 }
 
 watch(sortKey, () => {
-  if (window.value) {
-    loadWindow(window.value.parent_id);
+  if (viewWindow.value) {
+    loadWindow(viewWindow.value.parent_id);
   }
 });
 
@@ -625,8 +626,10 @@ function percentOf(part: number, whole: number): string {
       <p v-if="scanError" class="err">{{ scanError }}</p>
     </section>
 
-    <section v-if="window" class="card">
+    <section v-if="viewWindow" class="card">
       <h2>Drilldown (Bölüm 9.6 viewport query)</h2>
+
+      <Sunburst :data="viewWindow" @drill="drillInto" />
 
       <nav class="crumbs">
         <template v-for="(c, i) in breadcrumb" :key="c.id">
@@ -653,14 +656,14 @@ function percentOf(part: number, whole: number): string {
           </select>
         </label>
         <span class="drill-stats mono">
-          {{ window.returned }} / {{ window.total_children }} ·
-          {{ formatBytes(window.parent_aggregate_size) }}
+          {{ viewWindow.returned }} / {{ viewWindow.total_children }} ·
+          {{ formatBytes(viewWindow.parent_aggregate_size) }}
         </span>
       </div>
 
       <ul class="drill-list">
         <li
-          v-for="n in window.nodes"
+          v-for="n in viewWindow.nodes"
           :key="n.id"
           class="drill-row"
           :class="{ 'drill-dir': n.is_dir, 'drill-file': !n.is_dir }"
@@ -672,12 +675,12 @@ function percentOf(part: number, whole: number): string {
             <span
               class="drill-fill"
               :style="{
-                width: percentOf(n.aggregate_size, window.parent_aggregate_size),
+                width: percentOf(n.aggregate_size, viewWindow.parent_aggregate_size),
               }"
             ></span>
           </span>
           <span class="drill-pct mono">
-            {{ percentOf(n.aggregate_size, window.parent_aggregate_size) }}
+            {{ percentOf(n.aggregate_size, viewWindow.parent_aggregate_size) }}
           </span>
           <span class="drill-size mono">
             {{ formatBytes(n.aggregate_size) }}
@@ -728,8 +731,9 @@ function percentOf(part: number, whole: number): string {
         <li class="done">ScanTree builder + agregat boyutlar (Bölüm 4.3+4.4)</li>
         <li class="done">FindFirstFile fallback + auto-strategy (Bölüm 5.2A K2)</li>
         <li class="done">Lazy viewport query + drilldown (Bölüm 9.6)</li>
-        <li class="active">Sunburst görselleştirme (Bölüm 9, D3.js)</li>
-        <li>Safe-to-delete kural motoru (Bölüm 6)</li>
+        <li class="done">Sunburst donut (Bölüm 9.1 Pillar 2) — SVG hand-rolled</li>
+        <li class="active">Safe-to-delete kural motoru (Bölüm 6)</li>
+        <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
