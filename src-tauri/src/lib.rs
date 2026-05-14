@@ -18,8 +18,10 @@ pub mod volume;
 use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::error::{Error, Result};
 use crate::scan::{
-    is_elevated, pick_strategy, probe_ntfs, walk_mft, MftProbe, MftWalkStats, ScanStrategy,
+    is_elevated, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft, MftProbe,
+    MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
 };
+use std::sync::Arc;
 use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
 use tracing::{info, warn};
@@ -93,6 +95,52 @@ async fn walk_volume(drive: String) -> Result<MftWalkStats> {
         .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
 }
 
+/// Bölüm 4.3 Adım 3 + 4.4 — tam MFT entry koleksiyonu + hiyerarşi + agregat.
+/// Sonuç `Arc<ScanTree>` Tauri state'inde tutulur (single source of truth).
+#[tauri::command]
+async fn scan_full(
+    drive: String,
+    state: tauri::State<'_, ScanTreeState>,
+) -> Result<ScanSummary> {
+    let drv = drive.clone();
+    let (summary, tree) = tokio::task::spawn_blocking(move || scan_to_tree(&drv))
+        .await
+        .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
+
+    let arc_tree = Arc::new(tree);
+    {
+        let mut slot = state
+            .current
+            .write()
+            .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
+        *slot = Some(arc_tree);
+    }
+    info!(
+        drive,
+        node_count = summary.node_count,
+        gb = summary.total_bytes / 1_073_741_824,
+        "scan_full → state güncellendi"
+    );
+    Ok(summary)
+}
+
+/// Bölüm 9.6 ön-örneği — bir düğümün çocuklarını agregat boyuta göre top-N.
+#[tauri::command]
+fn tree_top_consumers(
+    state: tauri::State<'_, ScanTreeState>,
+    parent: u64,
+    limit: usize,
+) -> Result<Vec<Node>> {
+    let guard = state
+        .current
+        .read()
+        .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
+    let tree = guard
+        .as_ref()
+        .ok_or_else(|| Error::Scan("scan_full henüz çağrılmadı".into()))?;
+    Ok(top_consumers(tree, parent, limit))
+}
+
 /// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
 #[tauri::command]
 fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
@@ -137,6 +185,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(db_state)
+        .manage(ScanTreeState::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
@@ -144,6 +193,8 @@ pub fn run() {
             pre_flight_volume,
             probe_volume,
             walk_volume,
+            scan_full,
+            tree_top_consumers,
             get_db_info,
         ])
         .run(tauri::generate_context!())

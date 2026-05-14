@@ -97,6 +97,27 @@ interface MftWalkStats {
   elapsed_ms: number;
 }
 
+interface ScanSummary {
+  drive: string;
+  volume_id: string;
+  root_id: number;
+  node_count: number;
+  file_count: number;
+  dir_count: number;
+  total_bytes: number;
+  collect_elapsed_ms: number;
+  build_elapsed_ms: number;
+}
+
+interface TreeNode {
+  id: number;
+  parent: number | null;
+  name: string;
+  data_size: number;
+  aggregate_size: number;
+  is_dir: boolean;
+}
+
 const info = ref<AppInfo | null>(null);
 const ipcError = ref<string | null>(null);
 
@@ -116,6 +137,11 @@ const dbError = ref<string | null>(null);
 const walkStats = ref<MftWalkStats | null>(null);
 const walkError = ref<string | null>(null);
 const walking = ref(false);
+
+const scanSummary = ref<ScanSummary | null>(null);
+const scanError = ref<string | null>(null);
+const scanning = ref(false);
+const topNodes = ref<TreeNode[]>([]);
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -232,6 +258,26 @@ async function runWalk() {
     walkError.value = formatIpcError(err);
   } finally {
     walking.value = false;
+  }
+}
+
+async function runFullScan() {
+  scanning.value = true;
+  scanError.value = null;
+  scanSummary.value = null;
+  topNodes.value = [];
+  try {
+    scanSummary.value = await invoke<ScanSummary>("scan_full", {
+      drive: drive.value,
+    });
+    topNodes.value = await invoke<TreeNode[]>("tree_top_consumers", {
+      parent: scanSummary.value.root_id,
+      limit: 15,
+    });
+  } catch (err) {
+    scanError.value = formatIpcError(err);
+  } finally {
+    scanning.value = false;
   }
 }
 </script>
@@ -462,6 +508,63 @@ async function runWalk() {
     </section>
 
     <section class="card">
+      <h2>Tam Tarama + ScanTree (Bölüm 4.3 + 4.4)</h2>
+      <div class="probe-bar">
+        <button
+          type="button"
+          class="probe-btn"
+          :disabled="scanning"
+          @click="runFullScan"
+        >
+          {{ scanning ? `Taranıyor ${drive}…` : `Tam tarama: ${drive}` }}
+        </button>
+      </div>
+      <div v-if="scanSummary" class="grid">
+        <div class="row">
+          <span class="key">Düğüm</span>
+          <span class="val mono">
+            {{ scanSummary.node_count.toLocaleString("tr-TR") }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Dosya</span>
+          <span class="val mono">
+            {{ scanSummary.file_count.toLocaleString("tr-TR") }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Klasör</span>
+          <span class="val mono">
+            {{ scanSummary.dir_count.toLocaleString("tr-TR") }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Toplam</span>
+          <span class="val mono">{{ formatBytes(scanSummary.total_bytes) }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Toplama</span>
+          <span class="val mono">{{ scanSummary.collect_elapsed_ms }} ms</span>
+        </div>
+        <div class="row">
+          <span class="key">Ağaç build</span>
+          <span class="val mono">{{ scanSummary.build_elapsed_ms }} ms</span>
+        </div>
+        <div v-if="topNodes.length" class="samples">
+          <div class="samples-title">Top {{ topNodes.length }} consumer (root altı)</div>
+          <ul class="top-list">
+            <li v-for="n in topNodes" :key="n.id" class="top-item">
+              <span class="top-icon">{{ n.is_dir ? "📁" : "📄" }}</span>
+              <span class="top-name mono">{{ n.name }}</span>
+              <span class="top-size mono">{{ formatBytes(n.aggregate_size) }}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <p v-if="scanError" class="err">{{ scanError }}</p>
+    </section>
+
+    <section class="card">
       <h2>Veritabanı (Bölüm 14)</h2>
       <div v-if="dbInfo" class="grid">
         <div class="row">
@@ -498,8 +601,9 @@ async function runWalk() {
         <li class="done">Volume pre-flight (Bölüm 33.2 Katman 0)</li>
         <li class="done">SQLite + migrations 0001 (Bölüm 14)</li>
         <li class="done">MFT full walk v0.1 (Bölüm 5.1 + 4.3 Adım 2)</li>
-        <li class="active">Hiyerarşi + ScanTree builder (Bölüm 4.3 Adım 3, rayon)</li>
-        <li>FindFirstFile fallback (Bölüm 5.2A Katman 2)</li>
+        <li class="done">ScanTree builder + agregat boyutlar (Bölüm 4.3+4.4)</li>
+        <li class="active">FindFirstFile fallback (Bölüm 5.2A Katman 2)</li>
+        <li>Lazy viewport query API + sunburst (Bölüm 9.6 + 9)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
@@ -716,6 +820,49 @@ async function runWalk() {
 .samples-list li {
   color: var(--fg);
   padding: 1px 0;
+}
+
+.top-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.top-item {
+  display: grid;
+  grid-template-columns: 20px 1fr 100px;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.top-item:hover {
+  background: var(--bg);
+}
+
+.top-icon {
+  font-size: 14px;
+  text-align: center;
+}
+
+.top-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.top-size {
+  text-align: right;
+  color: #6ee7b7;
+  font-weight: 500;
 }
 
 .roadmap li.active {

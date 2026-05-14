@@ -13,32 +13,20 @@
 
 pub mod mft;
 pub mod privilege;
+pub mod tree;
 pub mod walk;
 
 pub use mft::{probe_ntfs, MftProbe};
 pub use privilege::is_elevated;
-pub use walk::{walk_mft, MftWalkStats};
+pub use tree::{
+    build_tree, scan_to_tree, top_consumers, Node, ScanSummary, ScanTree, ScanTreeState,
+};
+pub use walk::{collect_mft_entries, walk_mft, MftEntries, MftWalkStats, RawMftEntry};
 
 use serde::Serialize;
 
+/// MFT record numarası — düğüm kimliği olarak kullanılır (Bölüm 4.4).
 pub type NodeId = u64;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FileNode {
-    pub id: NodeId,
-    pub parent: Option<NodeId>,
-    pub name: String,
-    pub size_bytes: u64,
-    pub is_dir: bool,
-    pub modified_unix: i64,
-}
-
-#[derive(Debug, Default, Serialize)]
-pub struct ScanTree {
-    pub root: Option<NodeId>,
-    pub total_size_bytes: u64,
-    pub node_count: u64,
-}
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum ScanStrategy {

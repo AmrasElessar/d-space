@@ -22,6 +22,25 @@ use tracing::{debug, info};
 const SAMPLE_NAME_LIMIT: usize = 25;
 const MAX_RECORD_HARD_LIMIT: u64 = 50_000_000; // güvenlik tavanı
 
+/// Tek bir MFT kaydının özet metadata'sı — hiyerarşi kurmak için yeterli.
+#[derive(Debug, Clone, Serialize)]
+pub struct RawMftEntry {
+    pub record_no: u64,
+    pub parent_record_no: u64,
+    pub name: String,
+    pub data_size: u64,
+    pub is_dir: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MftEntries {
+    pub drive: String,
+    pub volume_path: String,
+    pub entries: Vec<RawMftEntry>,
+    pub skipped_errors: u64,
+    pub elapsed_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MftWalkStats {
     pub drive: String,
@@ -85,6 +104,88 @@ fn extract_name(file: &NtfsFile, handle: &mut File) -> Option<String> {
         }
     }
     None
+}
+
+/// İsim + parent_ref + data_size + is_dir tek seferde çıkarır.
+/// Win32 namespace tercih edilir.
+fn extract_full(file: &NtfsFile, handle: &mut File) -> Option<(String, u64, u64, bool)> {
+    if let Some(Ok(fname)) = file.name(handle, Some(NtfsFileNamespace::Win32), None) {
+        return Some((
+            fname.name().to_string_lossy(),
+            fname.parent_directory_reference().file_record_number(),
+            fname.data_size(),
+            fname.is_directory(),
+        ));
+    }
+    if let Some(Ok(fname)) = file.name(handle, None, None) {
+        if !matches!(fname.namespace(), NtfsFileNamespace::Dos) {
+            return Some((
+                fname.name().to_string_lossy(),
+                fname.parent_directory_reference().file_record_number(),
+                fname.data_size(),
+                fname.is_directory(),
+            ));
+        }
+    }
+    None
+}
+
+/// Tam MFT entry koleksiyonu — `build_tree` için besin kaynağı.
+/// System records (0-15) atlanır. Volume root NTFS'te record 5'tir.
+pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
+    let start = Instant::now();
+    let volume_path = normalize_volume_path(drive)?;
+
+    debug!(volume = %volume_path, "MFT entry koleksiyonu başlıyor");
+    let mut handle = File::open(&volume_path).map_err(|e| {
+        Error::Scan(format!(
+            "Volume açılamadı '{}': {} (yönetici izni gerekli olabilir)",
+            volume_path, e
+        ))
+    })?;
+
+    let ntfs = Ntfs::new(&mut handle)
+        .map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
+
+    let estimated = estimate_record_count(&ntfs, &mut handle)?;
+    let cap = estimated.min(MAX_RECORD_HARD_LIMIT);
+    info!(estimated, cap, "MFT entry koleksiyonu kapasitesi");
+
+    let mut entries: Vec<RawMftEntry> = Vec::with_capacity((cap as usize / 2).max(1024));
+    let mut skipped = 0u64;
+
+    // Root directory (record 5) sentetik düğüm olarak eklenmez —
+    // collect aşamasında kullanıcı entries'i temiz görür; build_tree
+    // gerekirse root sentetik düğüm üretir.
+    for record_no in 16..cap {
+        let file = match ntfs.file(&mut handle, record_no) {
+            Ok(f) => f,
+            Err(_) => {
+                skipped += 1;
+                continue;
+            }
+        };
+        if !file.flags().contains(NtfsFileFlags::IN_USE) {
+            continue;
+        }
+        if let Some((name, parent, size, is_dir)) = extract_full(&file, &mut handle) {
+            entries.push(RawMftEntry {
+                record_no,
+                parent_record_no: parent,
+                name,
+                data_size: if is_dir { 0 } else { size },
+                is_dir,
+            });
+        }
+    }
+
+    Ok(MftEntries {
+        drive: drive.to_string(),
+        volume_path,
+        entries,
+        skipped_errors: skipped,
+        elapsed_ms: start.elapsed().as_millis() as u64,
+    })
 }
 
 /// Tüm MFT record'larını sırayla gezer. İlk 16 system file (record 0-15)
