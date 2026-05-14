@@ -212,6 +212,117 @@ pub fn top_consumers(tree: &ScanTree, parent: NodeId, limit: usize) -> Vec<Node>
     out
 }
 
+/// Bölüm 9.6.3 — viewport-aware pencere sorgu anahtarı.
+#[derive(Debug, Clone, Copy, serde::Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortKey {
+    /// Agregat boyut, azalan.
+    SizeDesc,
+    /// İsim, alfabetik artan.
+    NameAsc,
+    /// Direkt veri boyutu (sadece dosyalar için anlamlı), azalan.
+    DataSizeDesc,
+}
+
+impl Default for SortKey {
+    fn default() -> Self {
+        Self::SizeDesc
+    }
+}
+
+/// Bölüm 9.6.3 — `tree_window` Tauri komutunun döndüğü pencere.
+#[derive(Debug, Clone, Serialize)]
+pub struct WindowResult {
+    pub parent_id: NodeId,
+    pub parent_name: String,
+    pub parent_aggregate_size: u64,
+    pub total_children: usize,
+    pub returned: usize,
+    pub nodes: Vec<Node>,
+}
+
+/// Bölüm 9.6 — bir ebeveynin altındaki çocukları filtreli + sıralı + sayfalı dön.
+/// `min_size_bytes`: viewport pixel threshold (1px'den küçük render edilirse atla).
+pub fn window_query(
+    tree: &ScanTree,
+    parent: NodeId,
+    sort: SortKey,
+    limit: usize,
+    offset: usize,
+    min_size_bytes: Option<u64>,
+) -> WindowResult {
+    let parent_node = tree.nodes.get(&parent);
+    let parent_name = parent_node
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| "<bilinmeyen>".to_string());
+    let parent_aggregate_size = parent_node.map(|n| n.aggregate_size).unwrap_or(0);
+
+    let mut children: Vec<Node> = tree
+        .children
+        .get(&parent)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| tree.nodes.get(id).cloned())
+                .filter(|n| match min_size_bytes {
+                    Some(min) => n.aggregate_size >= min,
+                    None => true,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    match sort {
+        SortKey::SizeDesc => {
+            children.sort_by(|a, b| b.aggregate_size.cmp(&a.aggregate_size));
+        }
+        SortKey::NameAsc => {
+            children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        }
+        SortKey::DataSizeDesc => {
+            children.sort_by(|a, b| b.data_size.cmp(&a.data_size));
+        }
+    }
+
+    let total_children = children.len();
+    let window: Vec<Node> = children.into_iter().skip(offset).take(limit).collect();
+
+    WindowResult {
+        parent_id: parent,
+        parent_name,
+        parent_aggregate_size,
+        total_children,
+        returned: window.len(),
+        nodes: window,
+    }
+}
+
+/// Bir düğümden root'a kadar olan zinciri kök → düğüm sırasıyla döner.
+/// Breadcrumb için (Bölüm 15.1.2 progressive disclosure).
+pub fn node_path(tree: &ScanTree, id: NodeId) -> Vec<Node> {
+    let mut path = Vec::new();
+    let mut cur = Some(id);
+    let mut hops = 0u32;
+    while let Some(c) = cur {
+        if hops >= MAX_PARENT_HOPS {
+            break;
+        }
+        match tree.nodes.get(&c) {
+            Some(node) => {
+                let parent = node.parent;
+                path.push(node.clone());
+                if parent == Some(c) {
+                    break;
+                }
+                cur = parent;
+            }
+            None => break,
+        }
+        hops += 1;
+    }
+    path.reverse();
+    path
+}
+
 /// `collect_mft_entries` + `build_tree` zincirleyen MFT-only API.
 pub fn scan_to_tree_mft(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
     debug!(drive, "MFT full scan başlıyor");
@@ -335,5 +446,68 @@ mod tests {
         let tree = build_tree("vol".into(), raw);
         assert_eq!(tree.total_bytes, 64);
         assert_eq!(tree.nodes.get(&300).unwrap().parent, None);
+    }
+
+    #[test]
+    fn window_size_desc_default() {
+        let raw = vec![
+            r(100, 5, "docs", 0, true),
+            r(101, 100, "a.txt", 200, false),
+            r(102, 100, "b.txt", 400, false),
+            r(103, 5, "c.bin", 50, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+        let w = window_query(&tree, 5, SortKey::SizeDesc, 10, 0, None);
+        // Root altında 2 çocuk var: docs(agg 600) ve c.bin(50)
+        assert_eq!(w.total_children, 2);
+        assert_eq!(w.returned, 2);
+        assert_eq!(w.nodes[0].id, 100);
+        assert_eq!(w.nodes[1].id, 103);
+        assert_eq!(w.parent_aggregate_size, 650);
+    }
+
+    #[test]
+    fn window_name_asc_and_pagination() {
+        let raw = vec![
+            r(10, 5, "Zeta", 100, false),
+            r(11, 5, "Alpha", 200, false),
+            r(12, 5, "Mu", 50, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+        let w = window_query(&tree, 5, SortKey::NameAsc, 2, 0, None);
+        assert_eq!(w.nodes[0].name, "Alpha");
+        assert_eq!(w.nodes[1].name, "Mu");
+        assert_eq!(w.total_children, 3);
+        assert_eq!(w.returned, 2);
+
+        let w2 = window_query(&tree, 5, SortKey::NameAsc, 2, 2, None);
+        assert_eq!(w2.returned, 1);
+        assert_eq!(w2.nodes[0].name, "Zeta");
+    }
+
+    #[test]
+    fn window_min_size_filter() {
+        let raw = vec![
+            r(20, 5, "tiny", 10, false),
+            r(21, 5, "huge", 9_000_000, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+        let w = window_query(&tree, 5, SortKey::SizeDesc, 10, 0, Some(1_000_000));
+        assert_eq!(w.returned, 1);
+        assert_eq!(w.nodes[0].name, "huge");
+    }
+
+    #[test]
+    fn node_path_breadcrumb() {
+        let raw = vec![
+            r(100, 5, "Projeler", 0, true),
+            r(101, 100, "d-space", 0, true),
+            r(102, 101, "src", 0, true),
+            r(103, 102, "main.rs", 4096, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+        let path = node_path(&tree, 103);
+        let names: Vec<&str> = path.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["<volume root>", "Projeler", "d-space", "src", "main.rs"]);
     }
 }

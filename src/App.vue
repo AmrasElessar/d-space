@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
 interface AppInfo {
@@ -119,6 +119,17 @@ interface TreeNode {
   is_dir: boolean;
 }
 
+type SortKey = "size_desc" | "name_asc" | "data_size_desc";
+
+interface WindowResult {
+  parent_id: number;
+  parent_name: string;
+  parent_aggregate_size: number;
+  total_children: number;
+  returned: number;
+  nodes: TreeNode[];
+}
+
 const info = ref<AppInfo | null>(null);
 const ipcError = ref<string | null>(null);
 
@@ -142,7 +153,12 @@ const walking = ref(false);
 const scanSummary = ref<ScanSummary | null>(null);
 const scanError = ref<string | null>(null);
 const scanning = ref(false);
-const topNodes = ref<TreeNode[]>([]);
+
+const window = ref<WindowResult | null>(null);
+const breadcrumb = ref<TreeNode[]>([]);
+const sortKey = ref<SortKey>("size_desc");
+const windowError = ref<string | null>(null);
+const windowLoading = ref(false);
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -262,24 +278,64 @@ async function runWalk() {
   }
 }
 
+async function loadWindow(parentId: number) {
+  windowLoading.value = true;
+  windowError.value = null;
+  try {
+    const w = await invoke<WindowResult>("tree_window", {
+      parent: parentId,
+      sort: sortKey.value,
+      limit: 200,
+      offset: 0,
+    });
+    window.value = w;
+    breadcrumb.value = await invoke<TreeNode[]>("tree_path", { id: parentId });
+  } catch (err) {
+    windowError.value = formatIpcError(err);
+  } finally {
+    windowLoading.value = false;
+  }
+}
+
 async function runFullScan() {
   scanning.value = true;
   scanError.value = null;
   scanSummary.value = null;
-  topNodes.value = [];
+  window.value = null;
+  breadcrumb.value = [];
   try {
     scanSummary.value = await invoke<ScanSummary>("scan_full", {
       drive: drive.value,
     });
-    topNodes.value = await invoke<TreeNode[]>("tree_top_consumers", {
-      parent: scanSummary.value.root_id,
-      limit: 15,
-    });
+    await loadWindow(scanSummary.value.root_id);
   } catch (err) {
     scanError.value = formatIpcError(err);
   } finally {
     scanning.value = false;
   }
+}
+
+function drillInto(node: TreeNode) {
+  if (node.is_dir) {
+    loadWindow(node.id);
+  }
+}
+
+function goUp(id: number) {
+  loadWindow(id);
+}
+
+watch(sortKey, () => {
+  if (window.value) {
+    loadWindow(window.value.parent_id);
+  }
+});
+
+function percentOf(part: number, whole: number): string {
+  if (whole <= 0) return "—";
+  const pct = (part / whole) * 100;
+  if (pct < 0.1) return "<0.1%";
+  return `${pct.toFixed(1)}%`;
 }
 </script>
 
@@ -565,18 +621,71 @@ async function runFullScan() {
           <span class="key">Ağaç build</span>
           <span class="val mono">{{ scanSummary.build_elapsed_ms }} ms</span>
         </div>
-        <div v-if="topNodes.length" class="samples">
-          <div class="samples-title">Top {{ topNodes.length }} consumer (root altı)</div>
-          <ul class="top-list">
-            <li v-for="n in topNodes" :key="n.id" class="top-item">
-              <span class="top-icon">{{ n.is_dir ? "📁" : "📄" }}</span>
-              <span class="top-name mono">{{ n.name }}</span>
-              <span class="top-size mono">{{ formatBytes(n.aggregate_size) }}</span>
-            </li>
-          </ul>
-        </div>
       </div>
       <p v-if="scanError" class="err">{{ scanError }}</p>
+    </section>
+
+    <section v-if="window" class="card">
+      <h2>Drilldown (Bölüm 9.6 viewport query)</h2>
+
+      <nav class="crumbs">
+        <template v-for="(c, i) in breadcrumb" :key="c.id">
+          <button
+            type="button"
+            class="crumb"
+            :class="{ 'crumb-current': i === breadcrumb.length - 1 }"
+            :disabled="i === breadcrumb.length - 1"
+            @click="goUp(c.id)"
+          >
+            {{ c.name }}
+          </button>
+          <span v-if="i < breadcrumb.length - 1" class="crumb-sep">›</span>
+        </template>
+      </nav>
+
+      <div class="drill-bar">
+        <label class="sort-label">
+          Sırala:
+          <select v-model="sortKey" class="sort-select">
+            <option value="size_desc">Boyut ↓</option>
+            <option value="name_asc">İsim ↑</option>
+            <option value="data_size_desc">Veri boyutu ↓</option>
+          </select>
+        </label>
+        <span class="drill-stats mono">
+          {{ window.returned }} / {{ window.total_children }} ·
+          {{ formatBytes(window.parent_aggregate_size) }}
+        </span>
+      </div>
+
+      <ul class="drill-list">
+        <li
+          v-for="n in window.nodes"
+          :key="n.id"
+          class="drill-row"
+          :class="{ 'drill-dir': n.is_dir, 'drill-file': !n.is_dir }"
+          @click="drillInto(n)"
+        >
+          <span class="drill-icon">{{ n.is_dir ? "📁" : "📄" }}</span>
+          <span class="drill-name mono">{{ n.name }}</span>
+          <span class="drill-bar-inner">
+            <span
+              class="drill-fill"
+              :style="{
+                width: percentOf(n.aggregate_size, window.parent_aggregate_size),
+              }"
+            ></span>
+          </span>
+          <span class="drill-pct mono">
+            {{ percentOf(n.aggregate_size, window.parent_aggregate_size) }}
+          </span>
+          <span class="drill-size mono">
+            {{ formatBytes(n.aggregate_size) }}
+          </span>
+        </li>
+        <li v-if="windowLoading" class="drill-loading">Yükleniyor…</li>
+      </ul>
+      <p v-if="windowError" class="err">{{ windowError }}</p>
     </section>
 
     <section class="card">
@@ -618,8 +727,9 @@ async function runFullScan() {
         <li class="done">MFT full walk v0.1 (Bölüm 5.1 + 4.3 Adım 2)</li>
         <li class="done">ScanTree builder + agregat boyutlar (Bölüm 4.3+4.4)</li>
         <li class="done">FindFirstFile fallback + auto-strategy (Bölüm 5.2A K2)</li>
-        <li class="active">Lazy viewport query API (Bölüm 9.6 tree_window)</li>
-        <li>Sunburst görselleştirme (Bölüm 9, D3.js)</li>
+        <li class="done">Lazy viewport query + drilldown (Bölüm 9.6)</li>
+        <li class="active">Sunburst görselleştirme (Bölüm 9, D3.js)</li>
+        <li>Safe-to-delete kural motoru (Bölüm 6)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
         <li>Safe-to-delete kural motoru (Bölüm 6)</li>
@@ -879,6 +989,155 @@ async function runFullScan() {
   text-align: right;
   color: #6ee7b7;
   font-weight: 500;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.crumb {
+  background: transparent;
+  border: none;
+  color: #93c5fd;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: ui-monospace, monospace;
+  transition: background 0.15s;
+}
+
+.crumb:hover:not(:disabled) {
+  background: #1e3a8a33;
+}
+
+.crumb-current {
+  color: var(--fg);
+  cursor: default;
+}
+
+.crumb-sep {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.drill-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sort-label {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.drill-stats {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.drill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.drill-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 120px 60px 100px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.drill-dir {
+  cursor: pointer;
+}
+
+.drill-dir:hover {
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.drill-file {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.drill-icon {
+  text-align: center;
+}
+
+.drill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drill-bar-inner {
+  position: relative;
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.drill-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #24c8db, #1e6f7c);
+  border-radius: 4px;
+}
+
+.drill-pct {
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.drill-size {
+  text-align: right;
+  color: #6ee7b7;
+  font-weight: 500;
+}
+
+.drill-loading {
+  padding: 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  list-style: none;
 }
 
 .roadmap li.active {

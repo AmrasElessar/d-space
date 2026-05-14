@@ -18,8 +18,9 @@ pub mod volume;
 use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::error::{Error, Result};
 use crate::scan::{
-    is_elevated, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft, MftProbe,
-    MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
+    is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
+    window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
+    SortKey, WindowResult,
 };
 use std::sync::Arc;
 use crate::volume::{pre_flight_check, VolumeInfo};
@@ -141,6 +142,46 @@ fn tree_top_consumers(
     Ok(top_consumers(tree, parent, limit))
 }
 
+/// Bölüm 9.6 — viewport-aware pencere sorgusu (filtreli + sıralı + sayfalı).
+#[tauri::command]
+fn tree_window(
+    state: tauri::State<'_, ScanTreeState>,
+    parent: u64,
+    sort: Option<SortKey>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    min_size_bytes: Option<u64>,
+) -> Result<WindowResult> {
+    let guard = state
+        .current
+        .read()
+        .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
+    let tree = guard
+        .as_ref()
+        .ok_or_else(|| Error::Scan("scan_full henüz çağrılmadı".into()))?;
+    Ok(window_query(
+        tree,
+        parent,
+        sort.unwrap_or_default(),
+        limit.unwrap_or(200),
+        offset.unwrap_or(0),
+        min_size_bytes,
+    ))
+}
+
+/// Bir düğümün root'a kadar olan zincirini döner — breadcrumb için.
+#[tauri::command]
+fn tree_path(state: tauri::State<'_, ScanTreeState>, id: u64) -> Result<Vec<Node>> {
+    let guard = state
+        .current
+        .read()
+        .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
+    let tree = guard
+        .as_ref()
+        .ok_or_else(|| Error::Scan("scan_full henüz çağrılmadı".into()))?;
+    Ok(node_path(tree, id))
+}
+
 /// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
 #[tauri::command]
 fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
@@ -195,6 +236,8 @@ pub fn run() {
             walk_volume,
             scan_full,
             tree_top_consumers,
+            tree_window,
+            tree_path,
             get_db_info,
         ])
         .run(tauri::generate_context!())

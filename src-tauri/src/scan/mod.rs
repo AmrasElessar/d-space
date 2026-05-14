@@ -21,7 +21,8 @@ pub use find_first::scan_find_first;
 pub use mft::{probe_ntfs, MftProbe};
 pub use privilege::is_elevated;
 pub use tree::{
-    build_tree, scan_to_tree, top_consumers, Node, ScanSummary, ScanTree, ScanTreeState,
+    build_tree, node_path, scan_to_tree, top_consumers, window_query, Node, ScanSummary,
+    ScanTree, ScanTreeState, SortKey, WindowResult,
 };
 pub use walk::{collect_mft_entries, walk_mft, MftEntries, MftWalkStats, RawMftEntry};
 
