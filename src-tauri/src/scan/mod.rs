@@ -13,9 +13,11 @@
 
 pub mod mft;
 pub mod privilege;
+pub mod walk;
 
 pub use mft::{probe_ntfs, MftProbe};
 pub use privilege::is_elevated;
+pub use walk::{walk_mft, MftWalkStats};
 
 use serde::Serialize;
 

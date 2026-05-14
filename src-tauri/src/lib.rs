@@ -17,7 +17,9 @@ pub mod volume;
 
 use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::error::{Error, Result};
-use crate::scan::{is_elevated, pick_strategy, probe_ntfs, MftProbe, ScanStrategy};
+use crate::scan::{
+    is_elevated, pick_strategy, probe_ntfs, walk_mft, MftProbe, MftWalkStats, ScanStrategy,
+};
 use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
 use tracing::{info, warn};
@@ -82,6 +84,15 @@ async fn probe_volume(drive: String) -> Result<MftProbe> {
         .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
 }
 
+/// Bölüm 5.1 + 4.3 Adım 2 — tüm MFT record'larını sırayla gez, sayım + örnek
+/// adlar dön. v0.1 tek-thread, hiyerarşi yok (sonraki sprint Bölüm 4.3 Adım 3).
+#[tauri::command]
+async fn walk_volume(drive: String) -> Result<MftWalkStats> {
+    tokio::task::spawn_blocking(move || walk_mft(&drive))
+        .await
+        .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
+}
+
 /// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
 #[tauri::command]
 fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
@@ -132,6 +143,7 @@ pub fn run() {
             check_privilege,
             pre_flight_volume,
             probe_volume,
+            walk_volume,
             get_db_info,
         ])
         .run(tauri::generate_context!())

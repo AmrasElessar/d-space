@@ -83,6 +83,20 @@ interface DbInfo {
   spec_version: string;
 }
 
+interface MftWalkStats {
+  drive: string;
+  volume_path: string;
+  total_records_estimate: number;
+  records_visited: number;
+  in_use_records: number;
+  directory_records: number;
+  file_records: number;
+  skipped_errors: number;
+  bytes_aggregate: number;
+  sample_names: string[];
+  elapsed_ms: number;
+}
+
 const info = ref<AppInfo | null>(null);
 const ipcError = ref<string | null>(null);
 
@@ -98,6 +112,10 @@ const preFlighting = ref(false);
 
 const dbInfo = ref<DbInfo | null>(null);
 const dbError = ref<string | null>(null);
+
+const walkStats = ref<MftWalkStats | null>(null);
+const walkError = ref<string | null>(null);
+const walking = ref(false);
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -199,6 +217,21 @@ async function runProbe() {
     probeError.value = formatIpcError(err);
   } finally {
     probing.value = false;
+  }
+}
+
+async function runWalk() {
+  walking.value = true;
+  walkError.value = null;
+  walkStats.value = null;
+  try {
+    walkStats.value = await invoke<MftWalkStats>("walk_volume", {
+      drive: drive.value,
+    });
+  } catch (err) {
+    walkError.value = formatIpcError(err);
+  } finally {
+    walking.value = false;
   }
 }
 </script>
@@ -367,6 +400,68 @@ async function runProbe() {
     </section>
 
     <section class="card">
+      <h2>MFT Full Walk (Bölüm 5.1 + 4.3 Adım 2)</h2>
+      <div class="probe-bar">
+        <button
+          type="button"
+          class="probe-btn"
+          :disabled="walking"
+          @click="runWalk"
+        >
+          {{ walking ? `MFT taranıyor… (${drive})` : `MFT walk: ${drive}` }}
+        </button>
+      </div>
+      <div v-if="walkStats" class="grid">
+        <div class="row">
+          <span class="key">Tahmin</span>
+          <span class="val mono">
+            {{ walkStats.total_records_estimate.toLocaleString("tr-TR") }} record
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Gezildi</span>
+          <span class="val mono">
+            {{ walkStats.records_visited.toLocaleString("tr-TR") }}
+          </span>
+          <span class="pill pill-ok">
+            {{ walkStats.in_use_records.toLocaleString("tr-TR") }} in-use
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Klasör</span>
+          <span class="val mono">
+            {{ walkStats.directory_records.toLocaleString("tr-TR") }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Dosya</span>
+          <span class="val mono">
+            {{ walkStats.file_records.toLocaleString("tr-TR") }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Toplam</span>
+          <span class="val mono">{{ formatBytes(walkStats.bytes_aggregate) }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Atlanan</span>
+          <span class="val mono">{{ walkStats.skipped_errors }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Süre</span>
+          <span class="val mono">{{ walkStats.elapsed_ms }} ms</span>
+        </div>
+        <div v-if="walkStats.sample_names.length" class="samples">
+          <div class="samples-title">Örnek isimler ({{ walkStats.sample_names.length }})</div>
+          <ul class="samples-list mono">
+            <li v-for="(n, i) in walkStats.sample_names" :key="i">{{ n }}</li>
+          </ul>
+        </div>
+      </div>
+      <p v-if="walkError" class="err">{{ walkError }}</p>
+    </section>
+
+    <section class="card">
       <h2>Veritabanı (Bölüm 14)</h2>
       <div v-if="dbInfo" class="grid">
         <div class="row">
@@ -402,7 +497,8 @@ async function runProbe() {
         <li class="done">MFT probe + yetki kontrolü (Bölüm 5)</li>
         <li class="done">Volume pre-flight (Bölüm 33.2 Katman 0)</li>
         <li class="done">SQLite + migrations 0001 (Bölüm 14)</li>
-        <li class="active">MFT tam tarama + ScanTree builder (Bölüm 5 + 4.4)</li>
+        <li class="done">MFT full walk v0.1 (Bölüm 5.1 + 4.3 Adım 2)</li>
+        <li class="active">Hiyerarşi + ScanTree builder (Bölüm 4.3 Adım 3, rayon)</li>
         <li>FindFirstFile fallback (Bölüm 5.2A Katman 2)</li>
         <li>Staging + Undo + WAL (Bölüm 12)</li>
         <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
@@ -592,6 +688,34 @@ async function runProbe() {
   font-size: 11px;
   word-break: break-all;
   color: var(--muted);
+}
+
+.samples {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.samples-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.samples-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  list-style: square;
+}
+
+.samples-list li {
+  color: var(--fg);
+  padding: 1px 0;
 }
 
 .roadmap li.active {
