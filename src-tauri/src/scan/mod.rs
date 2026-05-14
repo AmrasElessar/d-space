@@ -8,10 +8,14 @@
 //     tek sahip. Vue sadece `NodeId` referansı tutar.
 //   * Üç katmanlı yetki stratejisi (Bölüm 5.2A): MFT Service → admin raw
 //     volume → FindFirstFile fallback.
-//   * Hot-path izolasyonu: VSS scan sırasında ASLA çalışmaz (bkz.
-//     locked_file Bölüm 34.5.1).
-//
-// Bu dosya v0.1 iskelet — gerçek implementasyon Faz 1 sprintlerine yayılır.
+//   * Hot-path izolasyonu: VSS scan sırasında ASLA çalışmaz
+//     (bkz. `locked_file` Bölüm 34.5.1).
+
+pub mod mft;
+pub mod privilege;
+
+pub use mft::{probe_ntfs, MftProbe};
+pub use privilege::is_elevated;
 
 use serde::Serialize;
 
@@ -34,9 +38,22 @@ pub struct ScanTree {
     pub node_count: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum ScanStrategy {
+    /// Bölüm 5.2A Katman 3 — Tek seferlik kurulu Windows servisi (v2 stub).
     MftService,
+    /// Bölüm 5.2A Katman 1 — Process elevated, `\\.\X:` raw read.
     DirectRawVolume,
+    /// Bölüm 5.2A Katman 2 — Standart mod, FindFirstFile/FindNextFile.
     FindFirstFileFallback,
+}
+
+/// Bölüm 5.2A — yetkiye göre tarama stratejisi seçimi.
+/// MFT Service v2 stub, şimdilik elevation flag'ine bakar.
+pub fn pick_strategy() -> ScanStrategy {
+    if is_elevated() {
+        ScanStrategy::DirectRawVolume
+    } else {
+        ScanStrategy::FindFirstFileFallback
+    }
 }

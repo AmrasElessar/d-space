@@ -15,6 +15,8 @@ pub mod snapshot;
 pub mod staging;
 pub mod volume;
 
+use crate::error::Result;
+use crate::scan::{is_elevated, pick_strategy, probe_ntfs, MftProbe, ScanStrategy};
 use serde::Serialize;
 use tracing::info;
 
@@ -26,6 +28,12 @@ pub struct AppInfo {
     pub spec_status: &'static str,
     pub license: &'static str,
     pub platform: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PrivilegeStatus {
+    pub elevated: bool,
+    pub strategy: ScanStrategy,
 }
 
 impl AppInfo {
@@ -44,6 +52,23 @@ impl AppInfo {
 #[tauri::command]
 fn get_app_info() -> AppInfo {
     AppInfo::current()
+}
+
+#[tauri::command]
+fn check_privilege() -> PrivilegeStatus {
+    let elevated = is_elevated();
+    let strategy = pick_strategy();
+    info!(elevated, ?strategy, "yetki durumu sorgulandı");
+    PrivilegeStatus { elevated, strategy }
+}
+
+/// Bölüm 5.1–5.3 — raw volume aç, NTFS boot sector parse et, metadata dön.
+/// Yönetici yetkisi yoksa ACCESS_DENIED → Error::Scan.
+#[tauri::command]
+async fn probe_volume(drive: String) -> Result<MftProbe> {
+    tokio::task::spawn_blocking(move || probe_ntfs(&drive))
+        .await
+        .map_err(|e| crate::error::Error::Scan(format!("join hatası: {}", e)))?
 }
 
 fn init_tracing() {
@@ -70,7 +95,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_app_info])
+        .invoke_handler(tauri::generate_handler![
+            get_app_info,
+            check_privilege,
+            probe_volume,
+        ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
 }

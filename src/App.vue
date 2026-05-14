@@ -12,16 +12,80 @@ interface AppInfo {
   platform: string;
 }
 
+type ScanStrategy =
+  | "MftService"
+  | "DirectRawVolume"
+  | "FindFirstFileFallback";
+
+interface PrivilegeStatus {
+  elevated: boolean;
+  strategy: ScanStrategy;
+}
+
+interface MftProbe {
+  drive: string;
+  volume_path: string;
+  volume_serial: number;
+  cluster_size: number;
+  sector_size: number;
+  file_record_size: number;
+  elapsed_ms: number;
+}
+
+interface DspaceError {
+  kind: string;
+  message: string;
+}
+
 const info = ref<AppInfo | null>(null);
 const ipcError = ref<string | null>(null);
+
+const privilege = ref<PrivilegeStatus | null>(null);
+const drive = ref<string>("C");
+const probe = ref<MftProbe | null>(null);
+const probeError = ref<string | null>(null);
+const probing = ref(false);
+
+function formatHex(n: number): string {
+  return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
+}
+
+function strategyLabel(s: ScanStrategy): string {
+  switch (s) {
+    case "MftService":
+      return "MFT Service (Katman 3)";
+    case "DirectRawVolume":
+      return "Hızlı Mod (Katman 1)";
+    case "FindFirstFileFallback":
+      return "Standart Mod (Katman 2)";
+  }
+}
 
 onMounted(async () => {
   try {
     info.value = await invoke<AppInfo>("get_app_info");
+    privilege.value = await invoke<PrivilegeStatus>("check_privilege");
   } catch (err) {
     ipcError.value = String(err);
   }
 });
+
+async function runProbe() {
+  probing.value = true;
+  probeError.value = null;
+  probe.value = null;
+  try {
+    probe.value = await invoke<MftProbe>("probe_volume", {
+      drive: drive.value,
+    });
+  } catch (err) {
+    const e = err as DspaceError | string;
+    probeError.value =
+      typeof e === "string" ? e : `[${e.kind}] ${e.message}`;
+  } finally {
+    probing.value = false;
+  }
+}
 </script>
 
 <template>
@@ -57,6 +121,71 @@ onMounted(async () => {
       </div>
       <p v-else-if="ipcError" class="err">IPC hatası: {{ ipcError }}</p>
       <p v-else class="muted">Sürüm bilgisi alınıyor…</p>
+    </section>
+
+    <section class="card">
+      <h2>Yetki Durumu</h2>
+      <div v-if="privilege" class="grid">
+        <div class="row">
+          <span class="key">Elevation</span>
+          <span class="val mono">{{ privilege.elevated ? "evet" : "hayır" }}</span>
+          <span class="pill" :class="privilege.elevated ? 'pill-ok' : 'pill-warn'">
+            {{ privilege.elevated ? "admin" : "standart" }}
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Strateji</span>
+          <span class="val">{{ strategyLabel(privilege.strategy) }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>MFT Probe (Bölüm 5)</h2>
+      <div class="probe-bar">
+        <input
+          v-model="drive"
+          maxlength="3"
+          spellcheck="false"
+          class="drive-input mono"
+          aria-label="Sürücü harfi"
+        />
+        <button
+          type="button"
+          class="probe-btn"
+          :disabled="probing"
+          @click="runProbe"
+        >
+          {{ probing ? "Probe çalışıyor…" : "Probe çalıştır" }}
+        </button>
+      </div>
+      <div v-if="probe" class="grid">
+        <div class="row">
+          <span class="key">Volume</span>
+          <span class="val mono">{{ probe.volume_path }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Serial</span>
+          <span class="val mono">{{ formatHex(probe.volume_serial) }}</span>
+        </div>
+        <div class="row">
+          <span class="key">Cluster</span>
+          <span class="val mono">{{ probe.cluster_size }} B</span>
+        </div>
+        <div class="row">
+          <span class="key">Sector</span>
+          <span class="val mono">{{ probe.sector_size }} B</span>
+        </div>
+        <div class="row">
+          <span class="key">MFT rec.</span>
+          <span class="val mono">{{ probe.file_record_size }} B</span>
+        </div>
+        <div class="row">
+          <span class="key">Süre</span>
+          <span class="val mono">{{ probe.elapsed_ms }} ms</span>
+        </div>
+      </div>
+      <p v-if="probeError" class="err">{{ probeError }}</p>
     </section>
 
     <section class="card">
@@ -176,6 +305,61 @@ onMounted(async () => {
   background: #1e3a8a33;
   color: #93c5fd;
   border: 1px solid #1e3a8a66;
+}
+
+.pill-ok {
+  background: #14532d33;
+  color: #6ee7b7;
+  border: 1px solid #14532d66;
+}
+
+.pill-warn {
+  background: #78350f33;
+  color: #fcd34d;
+  border: 1px solid #78350f66;
+}
+
+.probe-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.drive-input {
+  width: 64px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.drive-input:focus {
+  outline: none;
+  border-color: #24c8db;
+}
+
+.probe-btn {
+  padding: 8px 16px;
+  background: #1f6f7c;
+  border: 1px solid #2a8a99;
+  border-radius: 8px;
+  color: #e7fafe;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.probe-btn:hover:not(:disabled) {
+  background: #2a8a99;
+}
+
+.probe-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .roadmap {
