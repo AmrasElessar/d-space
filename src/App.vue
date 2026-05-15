@@ -402,6 +402,33 @@ async function switchLocale(next: SupportedLocale) {
   }
 }
 
+// Bölüm 9.5 — tema sistemi (dark/light/auto). settings.theme persist edilir.
+type Theme = "dark" | "light" | "auto";
+const theme = ref<Theme>("auto");
+
+function applyTheme(t: Theme) {
+  const root = document.documentElement;
+  if (t === "auto") {
+    root.removeAttribute("data-theme");
+  } else {
+    root.setAttribute("data-theme", t);
+  }
+}
+
+async function cycleTheme() {
+  // auto → dark → light → auto
+  const order: Theme[] = ["auto", "dark", "light"];
+  const idx = order.indexOf(theme.value);
+  const next = order[(idx + 1) % order.length];
+  theme.value = next;
+  applyTheme(next);
+  try {
+    await invoke("set_setting_cmd", { key: "theme", value: next });
+  } catch (err) {
+    console.warn("theme pref kaydedilemedi", err);
+  }
+}
+
 function toggleAdvanced() {
   showAdvanced.value = !showAdvanced.value;
 }
@@ -622,6 +649,16 @@ onMounted(async () => {
     }
   } catch (err) {
     console.warn("language pref okunamadı", err);
+  }
+  // Bölüm 9.5 — kayıtlı tema tercihi
+  try {
+    const t = await invoke<string | null>("get_setting_cmd", { key: "theme" });
+    if (t === "dark" || t === "light" || t === "auto") {
+      theme.value = t;
+      applyTheme(t);
+    }
+  } catch {
+    /* sessiz fallback — auto */
   }
   // Bölüm 15.3 — ilk açılış kontrolü.
   try {
@@ -1066,6 +1103,27 @@ async function confirmPermDelete(item: StagedItem) {
           :title="locale === 'tr' ? 'Switch to English' : 'Türkçe'"
         >
           🌐 {{ locale === "tr" ? "TR" : "EN" }}
+        </button>
+        <button
+          type="button"
+          class="adv-toggle"
+          :class="{ 'adv-toggle-active': theme !== 'auto' }"
+          :title="
+            theme === 'auto'
+              ? 'Sistem teması · tıkla: koyu'
+              : theme === 'dark'
+                ? 'Koyu tema · tıkla: açık'
+                : 'Açık tema · tıkla: sistem'
+          "
+          @click="cycleTheme"
+        >
+          {{
+            theme === "auto"
+              ? t("header.themeAuto")
+              : theme === "dark"
+                ? t("header.themeDark")
+                : t("header.themeLight")
+          }}
         </button>
       </div>
       <p class="tagline">{{ t("app.tagline") }}</p>
@@ -3194,12 +3252,15 @@ async function confirmPermDelete(item: StagedItem) {
 </style>
 
 <style>
+/* Bölüm 9.5 — tema sistemi. data-theme="dark"|"light" body üzerinde,
+   sistem (auto) ise prefers-color-scheme media query'sini kullan. */
 :root {
   --fg: #e5e7eb;
   --muted: #9ca3af;
   --bg: #0b0d10;
   --surface: #14171c;
   --border: #1f242c;
+  --shadow: rgba(0, 0, 0, 0.5);
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   font-size: 14px;
@@ -3209,6 +3270,29 @@ async function confirmPermDelete(item: StagedItem) {
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+/* Light tema — kasıtlı seçim (settings.theme = "light"). */
+:root[data-theme="light"] {
+  --fg: #1f2937;
+  --muted: #6b7280;
+  --bg: #f9fafb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --shadow: rgba(0, 0, 0, 0.08);
+}
+
+/* Sistem teması ("auto" / null setting): prefers-color-scheme'i izle. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --fg: #1f2937;
+    --muted: #6b7280;
+    --bg: #f9fafb;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --shadow: rgba(0, 0, 0, 0.08);
+  }
 }
 
 * {

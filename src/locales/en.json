@@ -9,7 +9,10 @@
     "shortcuts": "⌨ Shortcuts",
     "language": "🌐",
     "tr": "TR",
-    "en": "EN"
+    "en": "EN",
+    "themeDark": "🌙 Dark",
+    "themeLight": "🌞 Light",
+    "themeAuto": "🖥 System"
   },
   "badge": {
     "skipped": "{count} skipped",

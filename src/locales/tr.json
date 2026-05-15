@@ -9,7 +9,10 @@
     "shortcuts": "⌨ Kısayollar",
     "language": "🌐",
     "tr": "TR",
-    "en": "EN"
+    "en": "EN",
+    "themeDark": "🌙 Koyu",
+    "themeLight": "🌞 Açık",
+    "themeAuto": "🖥 Sistem"
   },
   "badge": {
     "skipped": "{count} atlandı",
