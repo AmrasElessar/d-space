@@ -138,6 +138,36 @@ interface TreeNode {
 
 type SortKey = "size_desc" | "name_asc" | "data_size_desc";
 
+type LockState =
+  | "free"
+  | "locked"
+  | "access_denied"
+  | "not_found"
+  | { other_error: number };
+
+type LockedFileAction =
+  | "proceed"
+  | "skip_content"
+  | "snapshot_read"
+  | "user_drill_down"
+  | "hard_pass";
+
+interface LockOwner {
+  pid: number;
+  process_name: string;
+  service_short_name: string | null;
+  restartable: boolean;
+}
+
+interface LockedFileProbe {
+  path: string;
+  state: LockState;
+  owners: LockOwner[];
+  recommended_action: LockedFileAction;
+  vss_available: boolean;
+  probe_elapsed_ms: number;
+}
+
 interface WindowResult {
   parent_id: number;
   parent_name: string;
@@ -181,6 +211,10 @@ const stagingList = ref<StagedItem[]>([]);
 const stagingError = ref<string | null>(null);
 const stagingBusyId = ref<number | null>(null);
 const stagePendingPath = ref<string | null>(null);
+
+const lockProbes = ref<Map<number, LockedFileProbe>>(new Map());
+const lockProbeBusyId = ref<number | null>(null);
+const lockProbeErrors = ref<Map<number, string>>(new Map());
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -444,6 +478,77 @@ function scoreTierLabel(score: number | null): string {
   if (score <= 60) return "İNCELE";
   if (score <= 85) return "BÜYÜK İHTİMAL";
   return "CACHE";
+}
+
+function lockStateLabel(s: LockState): string {
+  if (typeof s === "string") {
+    switch (s) {
+      case "free":
+        return "Boş — başka handle yok";
+      case "locked":
+        return "Kilitli — başka process tutuyor";
+      case "access_denied":
+        return "ACL engelliyor";
+      case "not_found":
+        return "Bulunamadı";
+    }
+  }
+  return `Win32 hata (${s.other_error})`;
+}
+
+function lockStateClass(s: LockState): string {
+  if (typeof s === "string") {
+    if (s === "free") return "lock-free";
+    if (s === "locked") return "lock-busy";
+  }
+  return "lock-warn";
+}
+
+function lockActionLabel(a: LockedFileAction): string {
+  switch (a) {
+    case "proceed":
+      return "Devam et";
+    case "skip_content":
+      return "İçeriği atla";
+    case "snapshot_read":
+      return "VSS snapshot oku (v0.2)";
+    case "user_drill_down":
+      return "Seçenekleri göster";
+    case "hard_pass":
+      return "Sistem dosyası — denenmez";
+  }
+}
+
+async function probeLock(node: TreeNode) {
+  if (node.is_dir) return;
+  const path = nodeFullPath(node);
+  lockProbeBusyId.value = node.id;
+  const nextErrs = new Map(lockProbeErrors.value);
+  nextErrs.delete(node.id);
+  lockProbeErrors.value = nextErrs;
+  try {
+    const probe = await invoke<LockedFileProbe>("probe_locked_file_cmd", {
+      path,
+    });
+    const next = new Map(lockProbes.value);
+    next.set(node.id, probe);
+    lockProbes.value = next;
+  } catch (err) {
+    const errs = new Map(lockProbeErrors.value);
+    errs.set(node.id, formatIpcError(err));
+    lockProbeErrors.value = errs;
+  } finally {
+    lockProbeBusyId.value = null;
+  }
+}
+
+function closeLockProbe(id: number) {
+  const next = new Map(lockProbes.value);
+  next.delete(id);
+  lockProbes.value = next;
+  const errs = new Map(lockProbeErrors.value);
+  errs.delete(id);
+  lockProbeErrors.value = errs;
 }
 </script>
 
@@ -802,6 +907,16 @@ function scoreTierLabel(score: number | null): string {
             {{ formatBytes(n.aggregate_size) }}
           </span>
           <span class="drill-actions" @click.stop>
+            <button
+              v-if="!n.is_dir"
+              type="button"
+              class="stage-btn lock-probe-btn"
+              :disabled="lockProbeBusyId === n.id"
+              title="Lock durumu sorgula (Bölüm 34 — RestartManager, VSS yok)"
+              @click="probeLock(n)"
+            >
+              {{ lockProbeBusyId === n.id ? "…" : "🔒" }}
+            </button>
             <template v-if="stagePendingPath === nodeFullPath(n)">
               <button
                 type="button"
@@ -830,6 +945,67 @@ function scoreTierLabel(score: number | null): string {
               📥
             </button>
           </span>
+          <div
+            v-if="lockProbes.get(n.id) || lockProbeErrors.get(n.id)"
+            class="lock-detail"
+            @click.stop
+          >
+            <template v-if="lockProbes.get(n.id)">
+              <div class="lock-detail-head">
+                <span
+                  class="lock-pill"
+                  :class="lockStateClass(lockProbes.get(n.id)!.state)"
+                >
+                  {{ lockStateLabel(lockProbes.get(n.id)!.state) }}
+                </span>
+                <span class="lock-action mono">
+                  → {{ lockActionLabel(lockProbes.get(n.id)!.recommended_action) }}
+                </span>
+                <span class="lock-elapsed mono">
+                  {{ lockProbes.get(n.id)!.probe_elapsed_ms }} ms
+                </span>
+                <button
+                  type="button"
+                  class="lock-close"
+                  @click="closeLockProbe(n.id)"
+                >
+                  ✕
+                </button>
+              </div>
+              <ul
+                v-if="lockProbes.get(n.id)!.owners.length"
+                class="lock-owners"
+              >
+                <li
+                  v-for="o in lockProbes.get(n.id)!.owners"
+                  :key="o.pid"
+                  class="lock-owner-row"
+                >
+                  <span class="lock-pid mono">PID {{ o.pid }}</span>
+                  <span class="lock-proc">{{ o.process_name }}</span>
+                  <span v-if="o.service_short_name" class="lock-svc mono">
+                    svc: {{ o.service_short_name }}
+                  </span>
+                  <span v-if="o.restartable" class="lock-restartable">
+                    restart-safe
+                  </span>
+                </li>
+              </ul>
+              <p
+                v-else-if="
+                  typeof lockProbes.get(n.id)!.state === 'string' &&
+                  lockProbes.get(n.id)!.state === 'locked'
+                "
+                class="muted lock-empty"
+              >
+                Owner tespit edilemedi (RestartManager process bulamadı —
+                kernel handle olabilir).
+              </p>
+            </template>
+            <p v-if="lockProbeErrors.get(n.id)" class="err lock-err">
+              {{ lockProbeErrors.get(n.id) }}
+            </p>
+          </div>
         </li>
         <li v-if="windowLoading" class="drill-loading">Yükleniyor…</li>
       </ul>
@@ -926,9 +1102,12 @@ function scoreTierLabel(score: number | null): string {
         <li class="done">Staging + Undo same-volume (Bölüm 12.2)</li>
         <li class="done">Cross-volume two-phase commit + WAL (Bölüm 12.3)</li>
         <li class="done">Time Machine / Snapshot — capture + delta (Bölüm 8)</li>
-        <li class="active">Duplicate Detector v0.1 — Blake3 (Bölüm 7)</li>
-        <li>Treemap + bubble görselleştirme (Bölüm 9.2-9.3)</li>
-        <li>Locked file / VSS reference-counted snapshot pool (Bölüm 34)</li>
+        <li class="done">Duplicate Detector v0.1 — Blake3 (Bölüm 7)</li>
+        <li class="active">Locked file probe v0.1 — share-violation + RestartManager (Bölüm 34.1/34.3/34.4)</li>
+        <li>VSS reference-counted snapshot pool — hash-time path (Bölüm 34.5.4-34.5.6)</li>
+        <li>Treemap + bubble + timeline görselleştirme (Bölüm 9.1 mod 2/3/4)</li>
+        <li>Permanent delete + conflict resolution dialog (Bölüm 12.4 + 12.2.4)</li>
+        <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
         <li>v2 scoring rubric — TFLite tier'lı ML (Bölüm 6.5)</li>
       </ol>
     </section>
@@ -1320,6 +1499,137 @@ function scoreTierLabel(score: number | null): string {
   color: var(--muted);
   font-size: 11px;
   padding: 3px 6px;
+}
+
+.lock-probe-btn {
+  font-size: 13px;
+}
+
+.lock-detail {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lock-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lock-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.lock-free {
+  background: #14532d33;
+  color: #6ee7b7;
+  border: 1px solid #14532d80;
+}
+
+.lock-busy {
+  background: #7f1d1d33;
+  color: #fca5a5;
+  border: 1px solid #7f1d1d80;
+}
+
+.lock-warn {
+  background: #78350f33;
+  color: #fcd34d;
+  border: 1px solid #78350f80;
+}
+
+.lock-action {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lock-elapsed {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lock-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.lock-close:hover {
+  background: #1f6f7c33;
+}
+
+.lock-owners {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lock-owner-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  padding: 3px 0;
+  border-top: 1px dashed var(--border);
+}
+
+.lock-owner-row:first-child {
+  border-top: none;
+}
+
+.lock-pid {
+  color: #93c5fd;
+  font-weight: 600;
+  min-width: 70px;
+}
+
+.lock-proc {
+  color: var(--fg);
+}
+
+.lock-svc {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lock-restartable {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #14532d33;
+  color: #6ee7b7;
+  border: 1px solid #14532d66;
+  margin-left: auto;
+}
+
+.lock-empty {
+  font-size: 12px;
+  margin: 0;
+}
+
+.lock-err {
+  margin: 0;
+  font-size: 12px;
 }
 
 .staging-list {

@@ -17,6 +17,7 @@ pub mod volume;
 
 use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
+use crate::locked_file::{probe_file, LockedFileProbe};
 use crate::staging::{list_pending, recover_wal, stage, undo, StagedItem, WalRecoveryReport};
 use crate::error::{Error, Result};
 use crate::scan::{
@@ -279,6 +280,18 @@ fn list_snapshots(db_state: tauri::State<'_, DbState>) -> Result<Vec<SnapshotMet
     crate::snapshot::list_snapshots(&conn)
 }
 
+/// Bölüm 34 — tek dosya için locked state + lock owner probe.
+/// Yalnızca on-demand çağrılır (Bölüm 34.5.1 hot path izolasyonu). VSS yok,
+/// snapshot read v0.2 sprint'inde gelir. spawn_blocking → CreateFileW +
+/// Restart Manager senkron Win32 çağrıları.
+#[tauri::command]
+async fn probe_locked_file_cmd(path: String) -> Result<LockedFileProbe> {
+    let p = std::path::PathBuf::from(path);
+    tokio::task::spawn_blocking(move || probe_file(&p))
+        .await
+        .map_err(|e| Error::LockedFile(format!("join hatası: {}", e)))?
+}
+
 /// Bölüm 7 — taranmış ScanTree üzerinde duplicate aramayı çalıştırır. `scan_full`
 /// önce çağrılmış olmalı. Blake3 streaming hash; tek-thread v0.1. Sonuç:
 /// boyut-bucket → hash-bucket grupları, en çok kazandıran önce.
@@ -397,6 +410,7 @@ pub fn run() {
             list_snapshots,
             snapshot_delta,
             find_duplicates_cmd,
+            probe_locked_file_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
