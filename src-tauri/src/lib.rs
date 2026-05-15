@@ -387,6 +387,62 @@ fn snapshot_delta(from: i64, to: i64, db_state: tauri::State<'_, DbState>) -> Re
     crate::snapshot::compute_delta(from, to, &conn)
 }
 
+/// Bölüm 13.1 — system tray ikon + minimum menü. Auto-clean polling
+/// (Bölüm 13.2/13.3) v0.2 sprint'inde; bu v0.1 sadece pencere
+/// göster/gizle + çıkış.
+///
+/// İkon: Tauri'nin default app ikonunu kullanır (icon.ico zaten paketli).
+/// İleride özel tray ikonu (16x16 mono) eklenebilir.
+fn build_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    use tauri::menu::{MenuBuilder, MenuEvent};
+    use tauri::tray::TrayIconBuilder;
+    use tauri::{Emitter, Manager};
+
+    let menu = MenuBuilder::new(app)
+        .text("open", "D-Space'i aç")
+        .text("scan_c", "Tara: C:")
+        .separator()
+        .text("quit", "Çıkış")
+        .build()?;
+
+    let Some(icon) = app.default_window_icon().cloned() else {
+        warn!("default window icon yok — tray atlandı");
+        return Ok(());
+    };
+
+    TrayIconBuilder::with_id("dspace-tray")
+        .icon(icon)
+        .menu(&menu)
+        .tooltip("D-Space — Görmek, anlamak, geri kazanmak")
+        .show_menu_on_left_click(true)
+        .on_menu_event(move |app, event: MenuEvent| {
+            match event.id().as_ref() {
+                "open" => {
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                    }
+                }
+                "scan_c" => {
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                        // Pencereye event yolla; UI yakalayıp runFullScan tetikleyecek
+                        let _ = win.emit("tray-scan-request", "C");
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .build(app)?;
+
+    info!("system tray hazır");
+    Ok(())
+}
+
 fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
 
@@ -436,6 +492,10 @@ pub fn run() {
         .manage(db_state)
         .manage(ScanTreeState::default())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            build_tray(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             check_privilege,

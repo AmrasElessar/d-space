@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Sunburst from "./components/Sunburst.vue";
 import Treemap from "./components/Treemap.vue";
 import Bubble from "./components/Bubble.vue";
@@ -389,8 +390,29 @@ onMounted(() => {
   window.addEventListener("keydown", handleShortcut);
 });
 
+let trayUnlisten: UnlistenFn | null = null;
+
+onMounted(async () => {
+  // Bölüm 13.1 — tray "Tara C:" menüsünden gelen event'i yakala.
+  try {
+    trayUnlisten = await listen<string>("tray-scan-request", (event) => {
+      const requested = (event.payload || "C").toString();
+      drive.value = requested;
+      if (!scanning.value) {
+        runFullScan();
+      }
+    });
+  } catch (err) {
+    console.warn("tray listener kurulamadı", err);
+  }
+});
+
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleShortcut);
+  if (trayUnlisten) {
+    trayUnlisten();
+    trayUnlisten = null;
+  }
 });
 
 function formatHex(n: number): string {
