@@ -22,7 +22,18 @@ use tracing::{debug, info};
 const SAMPLE_NAME_LIMIT: usize = 25;
 const MAX_RECORD_HARD_LIMIT: u64 = 50_000_000; // güvenlik tavanı
 
-/// Tek bir MFT kaydının özet metadata'sı — hiyerarşi kurmak için yeterli.
+/// NTFS FILETIME (1601-01-01 epoch, 100-ns intervals) → Unix saniye.
+/// ntfs crate `NtfsTime::nt_timestamp()` u64 değerini bu fonksiyona besler.
+/// 0 girdisi 0 döner (epoch placeholder).
+pub(crate) fn nt_to_unix(nt_ts: u64) -> i64 {
+    if nt_ts == 0 {
+        return 0;
+    }
+    ((nt_ts / 10_000_000) as i64) - 11_644_473_600i64
+}
+
+/// Tek bir MFT kaydının özet metadata'sı — hiyerarşi + Timeline (Bölüm 9.1
+/// mod 4/4) için yeterli.
 #[derive(Debug, Clone, Serialize)]
 pub struct RawMftEntry {
     pub record_no: u64,
@@ -30,6 +41,9 @@ pub struct RawMftEntry {
     pub name: String,
     pub data_size: u64,
     pub is_dir: bool,
+    /// `$STANDARD_INFORMATION.modification_time` (Windows yazıda güncelliyor).
+    /// Fallback `$FILE_NAME` lag yapabilir — StandardInformation canonical.
+    pub modified_unix: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,24 +120,39 @@ fn extract_name(file: &NtfsFile, handle: &mut File) -> Option<String> {
     None
 }
 
-/// İsim + parent_ref + data_size + is_dir tek seferde çıkarır.
-/// Win32 namespace tercih edilir.
-fn extract_full(file: &NtfsFile, handle: &mut File) -> Option<(String, u64, u64, bool)> {
+/// İsim + parent_ref + data_size + is_dir + mtime tek seferde çıkarır.
+/// Win32 namespace tercih edilir. mtime için `$STANDARD_INFORMATION`
+/// (Windows yazıda update eder — canonical), başarısızsa `$FILE_NAME` fallback.
+fn extract_full(
+    file: &NtfsFile,
+    handle: &mut File,
+) -> Option<(String, u64, u64, bool, i64)> {
+    let si_mtime = file
+        .info()
+        .ok()
+        .map(|si| nt_to_unix(si.modification_time().nt_timestamp()));
+
     if let Some(Ok(fname)) = file.name(handle, Some(NtfsFileNamespace::Win32), None) {
+        let mtime = si_mtime
+            .unwrap_or_else(|| nt_to_unix(fname.modification_time().nt_timestamp()));
         return Some((
             fname.name().to_string_lossy(),
             fname.parent_directory_reference().file_record_number(),
             fname.data_size(),
             fname.is_directory(),
+            mtime,
         ));
     }
     if let Some(Ok(fname)) = file.name(handle, None, None) {
         if !matches!(fname.namespace(), NtfsFileNamespace::Dos) {
+            let mtime = si_mtime
+                .unwrap_or_else(|| nt_to_unix(fname.modification_time().nt_timestamp()));
             return Some((
                 fname.name().to_string_lossy(),
                 fname.parent_directory_reference().file_record_number(),
                 fname.data_size(),
                 fname.is_directory(),
+                mtime,
             ));
         }
     }
@@ -168,13 +197,14 @@ pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
         if !file.flags().contains(NtfsFileFlags::IN_USE) {
             continue;
         }
-        if let Some((name, parent, size, is_dir)) = extract_full(&file, &mut handle) {
+        if let Some((name, parent, size, is_dir, mtime)) = extract_full(&file, &mut handle) {
             entries.push(RawMftEntry {
                 record_no,
                 parent_record_no: parent,
                 name,
                 data_size: if is_dir { 0 } else { size },
                 is_dir,
+                modified_unix: mtime,
             });
         }
     }

@@ -230,6 +230,7 @@ mod tests {
             name: name.into(),
             data_size: size,
             is_dir: dir,
+            modified_unix: 0,
         }
     }
 

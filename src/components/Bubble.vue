@@ -24,6 +24,7 @@ interface TreeNode {
   score: number | null;
   score_rule: string | null;
   score_reason: string | null;
+  modified_unix: number;
 }
 
 interface WindowResult {

@@ -39,6 +39,9 @@ pub struct Node {
     pub score: Option<u8>,
     pub score_rule: Option<&'static str>,
     pub score_reason: Option<&'static str>,
+    /// `$STANDARD_INFORMATION.modification_time` Unix saniye. Bölüm 9.1 mod 4/4
+    /// Timeline ekseni için. 0 = bilinmiyor (sentetik root veya hata).
+    pub modified_unix: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,6 +107,7 @@ pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
                 score,
                 score_rule,
                 score_reason,
+                modified_unix: e.modified_unix,
             },
         );
     }
@@ -119,6 +123,7 @@ pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
         score: None,
         score_rule: None,
         score_reason: None,
+        modified_unix: 0,
     });
 
     // 2. Orphan parent rewiring: bilinmeyen parent → ROOT_RECORD.
@@ -438,6 +443,7 @@ mod tests {
             name: name.into(),
             data_size: size,
             is_dir: dir,
+            modified_unix: 0,
         }
     }
 

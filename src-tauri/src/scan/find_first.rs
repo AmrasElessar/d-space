@@ -23,9 +23,21 @@ use crate::scan::tree::ROOT_RECORD;
 use crate::scan::walk::{MftEntries, RawMftEntry};
 use crate::scan::NodeId;
 use std::collections::{HashMap, VecDeque};
+use std::fs::Metadata;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Instant, UNIX_EPOCH};
 use tracing::{debug, info, warn};
+
+/// `fs::metadata().modified()` → Unix saniye. Hata veya pre-epoch ise 0.
+fn metadata_mtime_unix(metadata: &Metadata) -> i64 {
+    match metadata.modified() {
+        Ok(t) => match t.duration_since(UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(_) => 0, // pre-1970 (NTFS'te mümkün), edge case
+        },
+        Err(_) => 0,
+    }
+}
 
 pub const MAX_DEPTH: u32 = 50;
 const SYNTHETIC_ID_START: u64 = 16;
@@ -101,8 +113,8 @@ pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
             let id = next_id;
             next_id += 1;
 
-            // metadata: dosya boyutu için gerekli. symlink_metadata kullanırız ki
-            // bilinmeyen reparse point'ler içine girmeyelim.
+            // metadata: dosya boyutu + mtime için gerekli. symlink_metadata
+            // kullanırız ki bilinmeyen reparse point'ler içine girmeyelim.
             let metadata = std::fs::symlink_metadata(&path).ok();
             let is_dir = file_type.is_dir();
             let data_size = if is_dir {
@@ -110,6 +122,10 @@ pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
             } else {
                 metadata.as_ref().map(|m| m.len()).unwrap_or(0)
             };
+            let modified_unix = metadata
+                .as_ref()
+                .map(metadata_mtime_unix)
+                .unwrap_or(0);
 
             entries.push(RawMftEntry {
                 record_no: id,
@@ -117,6 +133,7 @@ pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
                 name,
                 data_size,
                 is_dir,
+                modified_unix,
             });
 
             if is_dir {
@@ -204,6 +221,7 @@ mod tests {
                     name,
                     data_size: if is_dir { 0 } else { metadata.len() },
                     is_dir,
+                    modified_unix: metadata_mtime_unix(&metadata),
                 });
                 if is_dir {
                     queue.push_back((path, id, depth + 1));

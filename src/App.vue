@@ -5,10 +5,11 @@ import { invoke } from "@tauri-apps/api/core";
 import Sunburst from "./components/Sunburst.vue";
 import Treemap from "./components/Treemap.vue";
 import Bubble from "./components/Bubble.vue";
+import Timeline from "./components/Timeline.vue";
 import SnapshotPanel from "./components/SnapshotPanel.vue";
 import DuplicatePanel from "./components/DuplicatePanel.vue";
 
-type ViewMode = "sunburst" | "treemap" | "bubble";
+type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
 interface AppInfo {
   name: string;
@@ -138,6 +139,7 @@ interface TreeNode {
   score: number | null;
   score_rule: string | null;
   score_reason: string | null;
+  modified_unix: number;
 }
 
 type SortKey = "size_desc" | "name_asc" | "data_size_desc";
@@ -873,9 +875,14 @@ function closeLockProbe(id: number) {
         >
           Bubble
         </button>
-        <span class="view-chip view-chip-disabled" title="mtime field gerekli — sonraki sprint">
+        <button
+          type="button"
+          class="view-chip"
+          :class="{ 'view-chip-active': viewMode === 'timeline' }"
+          @click="viewMode = 'timeline'"
+        >
           Timeline
-        </span>
+        </button>
       </div>
 
       <Sunburst
@@ -890,6 +897,11 @@ function closeLockProbe(id: number) {
       />
       <Bubble
         v-else-if="viewMode === 'bubble'"
+        :data="viewWindow"
+        @drill="drillInto"
+      />
+      <Timeline
+        v-else-if="viewMode === 'timeline'"
         :data="viewWindow"
         @drill="drillInto"
       />
@@ -1157,8 +1169,8 @@ function closeLockProbe(id: number) {
         <li class="done">Locked file probe v0.1 — share-violation + RestartManager (Bölüm 34.1/34.3/34.4)</li>
         <li class="done">Treemap mod 2/4 — squarified (Bölüm 9.1)</li>
         <li class="done">Bubble mod 3/4 — force-relax (Bölüm 9.1)</li>
-        <li class="active">Timeline mod 4/4 — mtime field + zaman ekseni (Bölüm 9.1)</li>
-        <li>Permanent delete + conflict resolution (Bölüm 12.4 + 12.2.4)</li>
+        <li class="done">Timeline mod 4/4 — mtime ekseni + Y-relax (Bölüm 9.1)</li>
+        <li class="active">Permanent delete + conflict resolution (Bölüm 12.4 + 12.2.4)</li>
         <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
         <li>VSS reference-counted snapshot pool — Discovery Log #002, ertelendi</li>
         <li>Permanent delete + conflict resolution dialog (Bölüm 12.4 + 12.2.4)</li>
