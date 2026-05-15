@@ -18,7 +18,10 @@ pub mod volume;
 use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::locked_file::{probe_file, LockedFileProbe};
-use crate::staging::{list_pending, recover_wal, stage, undo, StagedItem, WalRecoveryReport};
+use crate::staging::{
+    list_pending, permanent_delete, recover_wal, stage, undo, PermanentDeleteResult, StagedItem,
+    WalRecoveryReport,
+};
 use crate::error::{Error, Result};
 use crate::scan::{
     is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
@@ -235,6 +238,22 @@ fn undo_staging(
     undo(id, &conn)
 }
 
+/// Bölüm 12.4 — staging item'ı disk'ten kalıcı sil + forensic ledger.
+/// `confirm_phrase` orijinal dosya adına (case-insensitive) eşit olmalı.
+/// Bu çift onayın **ikinci** adımı; ilk adım UI'da "Sil" butonuna basmak.
+#[tauri::command]
+fn permanent_delete_cmd(
+    id: i64,
+    confirm_phrase: String,
+    state: tauri::State<'_, DbState>,
+) -> Result<PermanentDeleteResult> {
+    let mut conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    permanent_delete(id, &confirm_phrase, &mut conn)
+}
+
 /// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
 #[tauri::command]
 fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
@@ -411,6 +430,7 @@ pub fn run() {
             snapshot_delta,
             find_duplicates_cmd,
             probe_locked_file_cmd,
+            permanent_delete_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");

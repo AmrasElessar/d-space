@@ -15,10 +15,12 @@
 
 pub mod cross_volume;
 pub mod ops;
+pub mod permanent;
 pub mod wal;
 
 pub use cross_volume::{blake3_file, cross_volume_stage_file};
 pub use ops::{list_pending, stage, undo, StagedItem, STAGING_TTL_SECS};
+pub use permanent::{permanent_delete, PermanentDeleteResult};
 pub use wal::{recover_wal, WalRecoveryReport};
 
 use serde::Serialize;

@@ -224,6 +224,21 @@ const lockProbeErrors = ref<Map<number, string>>(new Map());
 
 const viewMode = ref<ViewMode>("sunburst");
 
+const permDeletePendingId = ref<number | null>(null);
+const permDeletePhrase = ref<string>("");
+const permDeleteBusyId = ref<number | null>(null);
+const permDeleteError = ref<string | null>(null);
+
+interface PermanentDeleteResult {
+  id: number;
+  original_path: string;
+  staged_path: string;
+  size_bytes: number;
+  deleted_at_unix: number;
+  blake3_first4kb_hex: string | null;
+  is_dir: boolean;
+}
+
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
 }
@@ -557,6 +572,42 @@ function closeLockProbe(id: number) {
   const errs = new Map(lockProbeErrors.value);
   errs.delete(id);
   lockProbeErrors.value = errs;
+}
+
+function fileNameOf(p: string): string {
+  const ix = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  return ix >= 0 ? p.slice(ix + 1) : p;
+}
+
+function startPermDelete(item: StagedItem) {
+  permDeletePendingId.value = item.id;
+  permDeletePhrase.value = "";
+  permDeleteError.value = null;
+}
+
+function cancelPermDelete() {
+  permDeletePendingId.value = null;
+  permDeletePhrase.value = "";
+  permDeleteError.value = null;
+}
+
+async function confirmPermDelete(item: StagedItem) {
+  if (permDeletePendingId.value !== item.id) return;
+  permDeleteBusyId.value = item.id;
+  permDeleteError.value = null;
+  try {
+    await invoke<PermanentDeleteResult>("permanent_delete_cmd", {
+      id: item.id,
+      confirmPhrase: permDeletePhrase.value,
+    });
+    permDeletePendingId.value = null;
+    permDeletePhrase.value = "";
+    await refreshStaging();
+  } catch (err) {
+    permDeleteError.value = formatIpcError(err);
+  } finally {
+    permDeleteBusyId.value = null;
+  }
 }
 </script>
 
@@ -1082,35 +1133,89 @@ function closeLockProbe(id: number) {
         24 saat içinde ↩ ile geri alınabilir.
       </p>
       <ul v-if="stagingList.length" class="staging-list">
-        <li v-for="item in stagingList" :key="item.id" class="staging-row">
-          <span class="staging-icon">{{ item.is_dir ? "📁" : "📄" }}</span>
-          <span class="staging-path mono">{{ item.original_path }}</span>
-          <span
-            class="tier-pill"
-            :class="
-              item.fallback_tier === 'cross_volume'
-                ? 'tier-cross'
-                : 'tier-normal'
-            "
-            :title="
-              item.fallback_tier === 'cross_volume'
-                ? 'Cross-volume two-phase commit (Bölüm 12.3): Blake3 hash verify + WAL + atomik rename'
-                : 'Same-volume atomik rename (Bölüm 12.2)'
-            "
+        <li v-for="item in stagingList" :key="item.id" class="staging-row-wrap">
+          <div class="staging-row">
+            <span class="staging-icon">{{ item.is_dir ? "📁" : "📄" }}</span>
+            <span class="staging-path mono">{{ item.original_path }}</span>
+            <span
+              class="tier-pill"
+              :class="
+                item.fallback_tier === 'cross_volume'
+                  ? 'tier-cross'
+                  : 'tier-normal'
+              "
+              :title="
+                item.fallback_tier === 'cross_volume'
+                  ? 'Cross-volume two-phase commit (Bölüm 12.3): Blake3 hash verify + WAL + atomik rename'
+                  : 'Same-volume atomik rename (Bölüm 12.2)'
+              "
+            >
+              {{ item.fallback_tier === "cross_volume" ? "2PC" : "MOVE" }}
+            </span>
+            <span class="staging-size mono">{{ formatBytes(item.size_bytes) }}</span>
+            <span class="staging-time mono">{{ formatTime(item.staged_at_unix) }}</span>
+            <button
+              type="button"
+              class="stage-btn"
+              :disabled="stagingBusyId === item.id"
+              title="Orijinal yoluna geri taşı"
+              @click="runUndo(item.id)"
+            >
+              ↩ Undo
+            </button>
+            <button
+              type="button"
+              class="stage-btn perm-trigger"
+              :disabled="permDeleteBusyId === item.id"
+              title="Kalıcı sil (çift onay gerekir, geri alınamaz)"
+              @click="startPermDelete(item)"
+            >
+              🔥
+            </button>
+          </div>
+          <div
+            v-if="permDeletePendingId === item.id"
+            class="perm-confirm"
+            @click.stop
           >
-            {{ item.fallback_tier === "cross_volume" ? "2PC" : "MOVE" }}
-          </span>
-          <span class="staging-size mono">{{ formatBytes(item.size_bytes) }}</span>
-          <span class="staging-time mono">{{ formatTime(item.staged_at_unix) }}</span>
-          <button
-            type="button"
-            class="stage-btn"
-            :disabled="stagingBusyId === item.id"
-            title="Orijinal yoluna geri taşı"
-            @click="runUndo(item.id)"
-          >
-            ↩ Undo
-          </button>
+            <div class="perm-warn">
+              ⚠ Kalıcı silme geri alınamaz. Forensic ledger'a kayıt düşer.
+              Onaylamak için tam dosya adını yaz:
+              <code class="mono">{{ fileNameOf(item.original_path) }}</code>
+            </div>
+            <div class="perm-row">
+              <input
+                v-model="permDeletePhrase"
+                type="text"
+                spellcheck="false"
+                class="perm-input mono"
+                :placeholder="fileNameOf(item.original_path)"
+                @keyup.enter="confirmPermDelete(item)"
+                @keyup.esc="cancelPermDelete"
+              />
+              <button
+                type="button"
+                class="stage-btn perm-go"
+                :disabled="
+                  permDeleteBusyId === item.id ||
+                  !permDeletePhrase.trim()
+                "
+                @click="confirmPermDelete(item)"
+              >
+                {{ permDeleteBusyId === item.id ? "Siliniyor…" : "Kalıcı sil" }}
+              </button>
+              <button
+                type="button"
+                class="stage-btn perm-cancel"
+                @click="cancelPermDelete"
+              >
+                İptal
+              </button>
+            </div>
+            <p v-if="permDeleteError" class="err perm-err">
+              {{ permDeleteError }}
+            </p>
+          </div>
         </li>
       </ul>
       <p v-if="stagingError" class="err">{{ stagingError }}</p>
@@ -1757,9 +1862,15 @@ function closeLockProbe(id: number) {
   overflow-y: auto;
 }
 
+.staging-row-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .staging-row {
   display: grid;
-  grid-template-columns: 22px 1fr 50px 100px 150px 100px;
+  grid-template-columns: 22px 1fr 50px 100px 150px 100px 50px;
   gap: 10px;
   align-items: center;
   padding: 6px 8px;
@@ -1767,6 +1878,79 @@ function closeLockProbe(id: number) {
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg);
+}
+
+.perm-trigger {
+  font-size: 13px;
+}
+
+.perm-confirm {
+  padding: 10px 12px;
+  background: #7f1d1d18;
+  border: 1px solid #7f1d1d66;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perm-warn {
+  font-size: 12px;
+  color: #fca5a5;
+  line-height: 1.45;
+}
+
+.perm-warn code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #fcd34d;
+}
+
+.perm-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.perm-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.perm-input:focus {
+  outline: none;
+  border-color: #fca5a5;
+}
+
+.perm-go {
+  background: #7f1d1d66;
+  border-color: #7f1d1d;
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+.perm-go:hover:not(:disabled) {
+  background: #7f1d1daa;
+}
+
+.perm-cancel {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.perm-err {
+  margin: 0;
+  font-size: 12px;
 }
 
 .tier-pill {
