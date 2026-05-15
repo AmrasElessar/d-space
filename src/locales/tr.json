@@ -1,0 +1,114 @@
+{
+  "app": {
+    "name": "D-Space",
+    "tagline": "Görmek, anlamak, geri kazanmak."
+  },
+  "header": {
+    "advancedOn": "🔬 Tanı: AÇIK",
+    "advancedOff": "🔬 Tanı modu",
+    "shortcuts": "⌨ Kısayollar",
+    "language": "🌐",
+    "tr": "TR",
+    "en": "EN"
+  },
+  "badge": {
+    "skipped": "{count} atlandı",
+    "staging": "{count} staging",
+    "dbSchema": "DB v{version}"
+  },
+  "scan": {
+    "title": "Tam Tarama",
+    "driveAria": "Sürücü harfi",
+    "buttonIdle": "Tara: {drive}:",
+    "buttonBusy": "Taranıyor {drive}…"
+  },
+  "drilldown": {
+    "title": "Drilldown",
+    "viewMode": "Görüntü modu",
+    "sortLabel": "Sırala:",
+    "sortSizeDesc": "Boyut ↓",
+    "sortNameAsc": "İsim ↑",
+    "sortDataDesc": "Veri boyutu ↓",
+    "staging": "Staging'e gönder (24h içinde geri alınabilir)",
+    "lockProbe": "Lock durumu sorgula (Bölüm 34)",
+    "loading": "Yükleniyor…"
+  },
+  "staging": {
+    "title": "Staging Kuyruğu",
+    "empty": "Henüz staging'e atılmış öğe yok. Drilldown'da 📥 butonu ile gönderebilirsin — 24 saat içinde ↩ ile geri alınabilir.",
+    "undo": "↩ Undo",
+    "undoTitle": "Orijinal yoluna geri taşı",
+    "permTitle": "Kalıcı sil (çift onay gerekir, geri alınamaz)",
+    "permWarn": "⚠ Kalıcı silme geri alınamaz. Forensic ledger'a kayıt düşer. Onaylamak için tam dosya adını yaz:",
+    "permPlaceholder": "Dosya adını yazın",
+    "permGo": "Kalıcı sil",
+    "permBusy": "Siliniyor…",
+    "permCancel": "İptal"
+  },
+  "conflict": {
+    "title": "Çakışma: {name}",
+    "help": "Bölüm 12.2.4 — hedef yolda farklı içerikte bir dosya var. Hangisini tutmak istiyorsun?",
+    "colStaged": "Geri alınacak (staged)",
+    "colTarget": "Hedefte var olan",
+    "overwrite": "Üzerine yaz",
+    "rename": "Yeni isim ({name} (1))",
+    "keepBoth": "Her ikisini koru",
+    "cancel": "İptal"
+  },
+  "lock": {
+    "stateFree": "Boş — başka handle yok",
+    "stateLocked": "Kilitli — başka process tutuyor",
+    "stateAccessDenied": "ACL engelliyor",
+    "stateNotFound": "Bulunamadı",
+    "stateOtherError": "Win32 hata ({code})",
+    "actionProceed": "Devam et",
+    "actionSkip": "İçeriği atla",
+    "actionSnapshot": "VSS snapshot oku (v0.2)",
+    "actionDrillDown": "Seçenekleri göster",
+    "actionHardPass": "Sistem dosyası — denenmez",
+    "ownerEmpty": "Owner tespit edilemedi (RestartManager process bulamadı — kernel handle olabilir)."
+  },
+  "onboarding": {
+    "tagline": "Görmek · Anlamak · Geri kazanmak",
+    "slide1Title": "Görmek",
+    "slide1Body": "1 TB SSD'nizi saniyeler içinde haritalar. NTFS MFT'yi doğrudan okur — Sunburst, Treemap, Bubble, Timeline.",
+    "slide2Title": "Anlamak",
+    "slide2Body": "53 dahili kural ile her klasöre 0-100 \"silmek ne kadar güvenli\" skoru atar. node_modules güvenli (95), pagefile.sys dokunma (3).",
+    "slide3Title": "Geri kazanmak",
+    "slide3Body": "Hiçbir silme anında olmaz. Staging klasörüne taşınır, 24h içinde geri alınır. Cross-volume two-phase commit, çakışma çözümü, forensic ledger.",
+    "back": "◀ Geri",
+    "skip": "Atla",
+    "next": "İleri ▶",
+    "continue": "Devam ▶",
+    "modeTitle": "Tarama Modu Seçimi (Bölüm 5.2A)",
+    "modeHelp": "D-Space iki katmanlı bir tarama stratejisi kullanır. İhtiyacına uygun olanı seç — sonra Tanı modundan değiştirebilirsin.",
+    "modeFastName": "Hızlı Mod",
+    "modeFastPitch": "MFT'yi doğrudan okur, 1 TB < 5 sn.",
+    "modeFastB1": "Yönetici yetkisi <strong>gerekir</strong>",
+    "modeFastB2": "NTFS sürücüler için",
+    "modeFastB3": "İlk açılışta UAC istemez (Katman 1)",
+    "modeStandardName": "Standart Mod",
+    "modeStandardPitch": "FindFirstFile fallback, her durumda çalışır.",
+    "modeStandardB1": "Yönetici yetkisi <strong>gerekmez</strong>",
+    "modeStandardB2": "Network/USB/ReFS hepsi",
+    "modeStandardB3": "Daha yavaş ama her yerde (Katman 2)",
+    "start": "Başla ▶",
+    "license": "GPL-3.0-or-later · Spec v1.4"
+  },
+  "shortcuts": {
+    "title": "⌨ Klavye Kısayolları (Bölüm 15.2)",
+    "rescan": "Yeniden tara",
+    "viewModes": "Görüntü modu — Sunburst · Treemap · Bubble · Timeline",
+    "navUp": "Bir seviye yukarı (drilldown breadcrumb)",
+    "stageDelete": "Viewport'taki ilk dosyayı staging'e gönder",
+    "undo": "Son staging undo",
+    "search": "Arama (placeholder, v0.2)",
+    "escape": "Açık dialog'u kapat",
+    "helpToggle": "Bu yardımı aç/kapat",
+    "hint": "Input/textarea fokustayken kısayollar devre dışıdır — normal yazım engellenmez.",
+    "close": "Kapat"
+  },
+  "footer": {
+    "spec": "Master mimari: D-Space-Mimari-v1.4.docx"
+  }
+}

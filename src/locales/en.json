@@ -1,0 +1,114 @@
+{
+  "app": {
+    "name": "D-Space",
+    "tagline": "See, understand, recover."
+  },
+  "header": {
+    "advancedOn": "🔬 Diagnostics: ON",
+    "advancedOff": "🔬 Diagnostics",
+    "shortcuts": "⌨ Shortcuts",
+    "language": "🌐",
+    "tr": "TR",
+    "en": "EN"
+  },
+  "badge": {
+    "skipped": "{count} skipped",
+    "staging": "{count} staging",
+    "dbSchema": "DB v{version}"
+  },
+  "scan": {
+    "title": "Full Scan",
+    "driveAria": "Drive letter",
+    "buttonIdle": "Scan: {drive}:",
+    "buttonBusy": "Scanning {drive}…"
+  },
+  "drilldown": {
+    "title": "Drilldown",
+    "viewMode": "View mode",
+    "sortLabel": "Sort:",
+    "sortSizeDesc": "Size ↓",
+    "sortNameAsc": "Name ↑",
+    "sortDataDesc": "Data size ↓",
+    "staging": "Send to staging (recoverable within 24h)",
+    "lockProbe": "Probe lock state (Section 34)",
+    "loading": "Loading…"
+  },
+  "staging": {
+    "title": "Staging Queue",
+    "empty": "Nothing in staging yet. Use the 📥 button in drilldown to send items — recoverable with ↩ within 24 hours.",
+    "undo": "↩ Undo",
+    "undoTitle": "Restore to original path",
+    "permTitle": "Permanent delete (double confirmation, cannot be undone)",
+    "permWarn": "⚠ Permanent delete cannot be undone. A forensic ledger entry is written. To confirm, type the exact file name:",
+    "permPlaceholder": "Type file name",
+    "permGo": "Permanent delete",
+    "permBusy": "Deleting…",
+    "permCancel": "Cancel"
+  },
+  "conflict": {
+    "title": "Conflict: {name}",
+    "help": "Section 12.2.4 — a different file already exists at the target path. Which one do you want to keep?",
+    "colStaged": "To restore (staged)",
+    "colTarget": "Existing at target",
+    "overwrite": "Overwrite",
+    "rename": "Rename ({name} (1))",
+    "keepBoth": "Keep both",
+    "cancel": "Cancel"
+  },
+  "lock": {
+    "stateFree": "Free — no other handle",
+    "stateLocked": "Locked — another process holds it",
+    "stateAccessDenied": "Access denied (ACL)",
+    "stateNotFound": "Not found",
+    "stateOtherError": "Win32 error ({code})",
+    "actionProceed": "Proceed",
+    "actionSkip": "Skip content",
+    "actionSnapshot": "Read via VSS snapshot (v0.2)",
+    "actionDrillDown": "Show options",
+    "actionHardPass": "System file — never attempted",
+    "ownerEmpty": "Owner not detected (RestartManager found no process — may be a kernel handle)."
+  },
+  "onboarding": {
+    "tagline": "See · Understand · Recover",
+    "slide1Title": "See",
+    "slide1Body": "Maps your 1 TB SSD in seconds. Reads the NTFS MFT directly — Sunburst, Treemap, Bubble, Timeline.",
+    "slide2Title": "Understand",
+    "slide2Body": "53 built-in rules assign a 0-100 \"how safe to delete\" score to every folder. node_modules safe (95), pagefile.sys never touch (3).",
+    "slide3Title": "Recover",
+    "slide3Body": "No deletion is immediate. Moved to a staging folder, recoverable for 24h. Cross-volume two-phase commit, conflict resolution, forensic ledger.",
+    "back": "◀ Back",
+    "skip": "Skip",
+    "next": "Next ▶",
+    "continue": "Continue ▶",
+    "modeTitle": "Scan Mode Selection (Section 5.2A)",
+    "modeHelp": "D-Space uses a two-tier scan strategy. Pick the one that fits — you can change it later via Diagnostics.",
+    "modeFastName": "Fast Mode",
+    "modeFastPitch": "Reads MFT directly, 1 TB < 5 sec.",
+    "modeFastB1": "Admin privileges <strong>required</strong>",
+    "modeFastB2": "For NTFS volumes",
+    "modeFastB3": "No UAC prompt on first launch (Tier 1)",
+    "modeStandardName": "Standard Mode",
+    "modeStandardPitch": "FindFirstFile fallback, works everywhere.",
+    "modeStandardB1": "Admin privileges <strong>not required</strong>",
+    "modeStandardB2": "Network/USB/ReFS all supported",
+    "modeStandardB3": "Slower but universal (Tier 2)",
+    "start": "Start ▶",
+    "license": "GPL-3.0-or-later · Spec v1.4"
+  },
+  "shortcuts": {
+    "title": "⌨ Keyboard Shortcuts (Section 15.2)",
+    "rescan": "Rescan",
+    "viewModes": "View mode — Sunburst · Treemap · Bubble · Timeline",
+    "navUp": "One level up (drilldown breadcrumb)",
+    "stageDelete": "Send the first file in viewport to staging",
+    "undo": "Undo last staging",
+    "search": "Search (placeholder, v0.2)",
+    "escape": "Close open dialog",
+    "helpToggle": "Toggle this help",
+    "hint": "Shortcuts are disabled while an input/textarea has focus — normal typing is not blocked.",
+    "close": "Close"
+  },
+  "footer": {
+    "spec": "Master design: D-Space-Mimari-v1.4.docx"
+  }
+}

@@ -13,34 +13,22 @@
 -->
 <script setup lang="ts">
 import { ref, computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 type Mode = "fast" | "standard";
 
 interface Slide {
   emoji: string;
-  title: string;
-  body: string;
+  titleKey: string;
+  bodyKey: string;
 }
 
 const SLIDES: Slide[] = [
-  {
-    emoji: "📊",
-    title: "Görmek",
-    body:
-      "1 TB SSD'nizi saniyeler içinde haritalar. NTFS MFT'yi doğrudan okur — Sunburst, Treemap, Bubble, Timeline.",
-  },
-  {
-    emoji: "🧠",
-    title: "Anlamak",
-    body:
-      "53 dahili kural ile her klasöre 0-100 \"silmek ne kadar güvenli\" skoru atar. node_modules güvenli (95), pagefile.sys dokunma (3).",
-  },
-  {
-    emoji: "↩",
-    title: "Geri kazanmak",
-    body:
-      "Hiçbir silme anında olmaz. Staging klasörüne taşınır, 24h içinde geri alınır. Cross-volume two-phase commit, çakışma çözümü, forensic ledger.",
-  },
+  { emoji: "📊", titleKey: "onboarding.slide1Title", bodyKey: "onboarding.slide1Body" },
+  { emoji: "🧠", titleKey: "onboarding.slide2Title", bodyKey: "onboarding.slide2Body" },
+  { emoji: "↩", titleKey: "onboarding.slide3Title", bodyKey: "onboarding.slide3Body" },
 ];
 
 defineProps<{ visible: boolean }>();
@@ -86,15 +74,15 @@ function finish() {
     <div class="onboard-card">
       <header class="onboard-head">
         <span class="logo-dot"></span>
-        <h2>D-Space</h2>
-        <span class="tagline mono">Görmek · Anlamak · Geri kazanmak</span>
+        <h2>{{ t("app.name") }}</h2>
+        <span class="tagline mono">{{ t("onboarding.tagline") }}</span>
       </header>
 
       <template v-if="step === 'slides'">
         <div class="slide">
           <div class="slide-emoji">{{ currentSlide.emoji }}</div>
-          <h3 class="slide-title">{{ currentSlide.title }}</h3>
-          <p class="slide-body">{{ currentSlide.body }}</p>
+          <h3 class="slide-title">{{ t(currentSlide.titleKey) }}</h3>
+          <p class="slide-body">{{ t(currentSlide.bodyKey) }}</p>
         </div>
 
         <div class="slide-dots">
@@ -113,27 +101,24 @@ function finish() {
             :disabled="slideIndex === 0"
             @click="back"
           >
-            ◀ Geri
+            {{ t("onboarding.back") }}
           </button>
           <button
             type="button"
             class="onboard-btn onboard-ghost"
             @click="skipSlides"
           >
-            Atla
+            {{ t("onboarding.skip") }}
           </button>
           <button type="button" class="onboard-btn onboard-primary" @click="next">
-            {{ isLastSlide ? "Devam ▶" : "İleri ▶" }}
+            {{ isLastSlide ? t("onboarding.continue") : t("onboarding.next") }}
           </button>
         </div>
       </template>
 
       <template v-else>
-        <h3 class="mode-title">Tarama Modu Seçimi (Bölüm 5.2A)</h3>
-        <p class="mode-help">
-          D-Space iki katmanlı bir tarama stratejisi kullanır. İhtiyacına
-          uygun olanı seç — sonra Tanı modundan değiştirebilirsin.
-        </p>
+        <h3 class="mode-title">{{ t("onboarding.modeTitle") }}</h3>
+        <p class="mode-help">{{ t("onboarding.modeHelp") }}</p>
 
         <div class="mode-grid">
           <button
@@ -143,14 +128,12 @@ function finish() {
             @click="selectMode('fast')"
           >
             <div class="mode-icon">⚡</div>
-            <div class="mode-name">Hızlı Mod</div>
-            <div class="mode-pitch">
-              MFT'yi doğrudan okur, 1 TB &lt; 5 sn.
-            </div>
+            <div class="mode-name">{{ t("onboarding.modeFastName") }}</div>
+            <div class="mode-pitch">{{ t("onboarding.modeFastPitch") }}</div>
             <ul class="mode-bullets">
-              <li>Yönetici yetkisi <strong>gerekir</strong></li>
-              <li>NTFS sürücüler için</li>
-              <li>İlk açılışta UAC istemez (Katman 1)</li>
+              <li v-html="t('onboarding.modeFastB1')"></li>
+              <li>{{ t("onboarding.modeFastB2") }}</li>
+              <li>{{ t("onboarding.modeFastB3") }}</li>
             </ul>
           </button>
 
@@ -161,14 +144,12 @@ function finish() {
             @click="selectMode('standard')"
           >
             <div class="mode-icon">🛡</div>
-            <div class="mode-name">Standart Mod</div>
-            <div class="mode-pitch">
-              FindFirstFile fallback, her durumda çalışır.
-            </div>
+            <div class="mode-name">{{ t("onboarding.modeStandardName") }}</div>
+            <div class="mode-pitch">{{ t("onboarding.modeStandardPitch") }}</div>
             <ul class="mode-bullets">
-              <li>Yönetici yetkisi <strong>gerekmez</strong></li>
-              <li>Network/USB/ReFS hepsi</li>
-              <li>Daha yavaş ama her yerde (Katman 2)</li>
+              <li v-html="t('onboarding.modeStandardB1')"></li>
+              <li>{{ t("onboarding.modeStandardB2") }}</li>
+              <li>{{ t("onboarding.modeStandardB3") }}</li>
             </ul>
           </button>
         </div>
@@ -179,7 +160,7 @@ function finish() {
             class="onboard-btn onboard-ghost"
             @click="step = 'slides'"
           >
-            ◀ Geri
+            {{ t("onboarding.back") }}
           </button>
           <button
             type="button"
@@ -187,13 +168,13 @@ function finish() {
             :disabled="!selectedMode"
             @click="finish"
           >
-            Başla ▶
+            {{ t("onboarding.start") }}
           </button>
         </div>
       </template>
 
       <footer class="onboard-foot mono">
-        GPL-3.0-or-later · Spec v1.4
+        {{ t("onboarding.license") }}
       </footer>
     </div>
   </div>

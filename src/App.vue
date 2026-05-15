@@ -3,6 +3,10 @@
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useI18n } from "vue-i18n";
+import { setLocale, type SupportedLocale } from "./i18n";
+
+const { t, locale } = useI18n();
 import Sunburst from "./components/Sunburst.vue";
 import Treemap from "./components/Treemap.vue";
 import Bubble from "./components/Bubble.vue";
@@ -280,6 +284,19 @@ const showAdvanced = ref<boolean>(false);
 // Bölüm 15.3 + 37 — ilk açılış. settings.onboarding_done = "1" flag.
 const onboardingVisible = ref<boolean>(false);
 
+// Bölüm 19 — language toggle. Persisted in settings.language_preference.
+async function switchLocale(next: SupportedLocale) {
+  setLocale(next);
+  try {
+    await invoke("set_setting_cmd", {
+      key: "language_preference",
+      value: next,
+    });
+  } catch (err) {
+    console.warn("language pref kaydedilemedi", err);
+  }
+}
+
 function toggleAdvanced() {
   showAdvanced.value = !showAdvanced.value;
 }
@@ -480,6 +497,17 @@ onMounted(async () => {
     dbError.value = formatIpcError(err);
   }
   await refreshStaging();
+  // Bölüm 19 — kayıtlı dil tercihi
+  try {
+    const pref = await invoke<string | null>("get_setting_cmd", {
+      key: "language_preference",
+    });
+    if (pref === "en" || pref === "tr") {
+      setLocale(pref);
+    }
+  } catch (err) {
+    console.warn("language pref okunamadı", err);
+  }
   // Bölüm 15.3 — ilk açılış kontrolü.
   try {
     const done = await invoke<string | null>("get_setting_cmd", {
@@ -865,26 +893,29 @@ async function confirmPermDelete(item: StagedItem) {
           type="button"
           class="adv-toggle"
           :class="{ 'adv-toggle-active': showAdvanced }"
-          :title="
-            showAdvanced
-              ? 'Tanı kartlarını gizle (Seviye 1 — özet)'
-              : 'Tanı kartlarını göster (Seviye 3 — power user)'
-          "
           @click="toggleAdvanced"
         >
-          {{ showAdvanced ? "🔬 Tanı: AÇIK" : "🔬 Tanı modu" }}
+          {{ showAdvanced ? t("header.advancedOn") : t("header.advancedOff") }}
         </button>
         <button
           type="button"
           class="adv-toggle"
           :class="{ 'adv-toggle-active': showShortcuts }"
-          title="Klavye kısayolları (Ctrl+?)"
           @click="showShortcuts = !showShortcuts"
         >
-          ⌨ Kısayollar
+          {{ t("header.shortcuts") }}
+        </button>
+        <button
+          type="button"
+          class="adv-toggle"
+          :class="{ 'adv-toggle-active': locale === 'tr' }"
+          @click="switchLocale(locale === 'tr' ? 'en' : 'tr')"
+          :title="locale === 'tr' ? 'Switch to English' : 'Türkçe'"
+        >
+          🌐 {{ locale === "tr" ? "TR" : "EN" }}
         </button>
       </div>
-      <p class="tagline">Görmek, anlamak, geri kazanmak.</p>
+      <p class="tagline">{{ t("app.tagline") }}</p>
 
       <!-- Bölüm 15.1.3 Badge group: summary metrikler (scan_summary doluysa) -->
       <div v-if="scanSummary" class="badge-group">
@@ -904,23 +935,14 @@ async function confirmPermDelete(item: StagedItem) {
         <span
           v-if="walkStats && walkStats.skipped_errors > 0"
           class="badge badge-warn"
-          :title="`Tarama sırasında ${walkStats.skipped_errors} kayıt okunamadı`"
         >
-          ⚠ {{ walkStats.skipped_errors }} atlandı
+          ⚠ {{ t("badge.skipped", { count: walkStats.skipped_errors }) }}
         </span>
-        <span
-          v-if="stagingList.length > 0"
-          class="badge badge-amber"
-          :title="`Staging kuyruğunda ${stagingList.length} öğe (24h undo)`"
-        >
-          📥 {{ stagingList.length }} staging
+        <span v-if="stagingList.length > 0" class="badge badge-amber">
+          📥 {{ t("badge.staging", { count: stagingList.length }) }}
         </span>
-        <span
-          v-if="dbInfo"
-          class="badge badge-ghost"
-          :title="`DB schema v${dbInfo.schema_version} · ${dbInfo.table_count} tablo`"
-        >
-          ℹ DB v{{ dbInfo.schema_version }}
+        <span v-if="dbInfo" class="badge badge-ghost">
+          ℹ {{ t("badge.dbSchema", { version: dbInfo.schema_version }) }}
         </span>
       </div>
     </header>
@@ -1141,14 +1163,14 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section class="card">
-      <h2>Tam Tarama</h2>
+      <h2>{{ t("scan.title") }}</h2>
       <div class="probe-bar">
         <input
           v-model="drive"
           maxlength="3"
           spellcheck="false"
           class="drive-input mono"
-          aria-label="Sürücü harfi"
+          :aria-label="t('scan.driveAria')"
         />
         <button
           type="button"
@@ -1156,7 +1178,11 @@ async function confirmPermDelete(item: StagedItem) {
           :disabled="scanning"
           @click="runFullScan"
         >
-          {{ scanning ? `Taranıyor ${drive}…` : `Tara: ${drive}:` }}
+          {{
+            scanning
+              ? t("scan.buttonBusy", { drive })
+              : t("scan.buttonIdle", { drive })
+          }}
         </button>
         <span v-if="scanSummary" class="scan-quick mono">
           {{ strategyLabel(scanSummary.strategy) }} ·
