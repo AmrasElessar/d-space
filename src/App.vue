@@ -239,6 +239,37 @@ interface PermanentDeleteResult {
   is_dir: boolean;
 }
 
+interface FileSnapshot {
+  path: string;
+  size_bytes: number;
+  modified_unix: number;
+  blake3_first4kb_hex: string | null;
+  is_dir: boolean;
+}
+
+type UndoOutcome =
+  | { kind: "restored"; original_path: string }
+  | { kind: "idempotent"; original_path: string }
+  | {
+      kind: "conflict";
+      original_path: string;
+      staged: FileSnapshot;
+      target: FileSnapshot;
+    };
+
+type UndoResolution = "overwrite" | "rename" | "keep_both" | "cancel";
+
+interface ConflictDialogState {
+  id: number;
+  original_path: string;
+  staged: FileSnapshot;
+  target: FileSnapshot;
+}
+
+const conflictDialog = ref<ConflictDialogState | null>(null);
+const conflictBusy = ref<boolean>(false);
+const conflictError = ref<string | null>(null);
+
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
 }
@@ -483,15 +514,51 @@ async function runUndo(id: number) {
   stagingBusyId.value = id;
   stagingError.value = null;
   try {
-    await invoke<string>("undo_staging", { id });
-    await refreshStaging();
-    if (viewWindow.value) {
-      await loadWindow(viewWindow.value.parent_id);
+    const outcome = await invoke<UndoOutcome>("undo_staging", { id });
+    if (outcome.kind === "conflict") {
+      conflictDialog.value = {
+        id,
+        original_path: outcome.original_path,
+        staged: outcome.staged,
+        target: outcome.target,
+      };
+      conflictError.value = null;
+    } else {
+      await refreshStaging();
+      if (viewWindow.value) {
+        await loadWindow(viewWindow.value.parent_id);
+      }
     }
   } catch (err) {
     stagingError.value = formatIpcError(err);
   } finally {
     stagingBusyId.value = null;
+  }
+}
+
+async function resolveConflict(resolution: UndoResolution) {
+  if (!conflictDialog.value) return;
+  if (resolution === "cancel") {
+    conflictDialog.value = null;
+    conflictError.value = null;
+    return;
+  }
+  conflictBusy.value = true;
+  conflictError.value = null;
+  try {
+    await invoke<UndoOutcome>("undo_resolve_staging", {
+      id: conflictDialog.value.id,
+      resolution,
+    });
+    conflictDialog.value = null;
+    await refreshStaging();
+    if (viewWindow.value) {
+      await loadWindow(viewWindow.value.parent_id);
+    }
+  } catch (err) {
+    conflictError.value = formatIpcError(err);
+  } finally {
+    conflictBusy.value = false;
   }
 }
 
@@ -1221,6 +1288,91 @@ async function confirmPermDelete(item: StagedItem) {
       <p v-if="stagingError" class="err">{{ stagingError }}</p>
     </section>
 
+    <div
+      v-if="conflictDialog"
+      class="modal-backdrop"
+      @click.self="resolveConflict('cancel')"
+    >
+      <div class="conflict-dialog">
+        <h3 class="conflict-title">
+          ⚠ Çakışma: {{ fileNameOf(conflictDialog.original_path) }}
+        </h3>
+        <p class="conflict-help">
+          Bölüm 12.2.4 — hedef yolda farklı içerikte bir dosya var. Hangisini
+          tutmak istiyorsun?
+        </p>
+
+        <div class="conflict-cols">
+          <div class="conflict-col">
+            <div class="conflict-col-head">Geri alınacak (staged)</div>
+            <div class="conflict-meta mono">
+              <div>📄 {{ formatBytes(conflictDialog.staged.size_bytes) }}</div>
+              <div>{{ formatTime(conflictDialog.staged.modified_unix) }}</div>
+              <div
+                v-if="conflictDialog.staged.blake3_first4kb_hex"
+                class="hash-hint"
+                :title="conflictDialog.staged.blake3_first4kb_hex"
+              >
+                {{ conflictDialog.staged.blake3_first4kb_hex.slice(0, 12) }}…
+              </div>
+            </div>
+          </div>
+          <div class="conflict-vs">vs</div>
+          <div class="conflict-col">
+            <div class="conflict-col-head">Hedefte var olan</div>
+            <div class="conflict-meta mono">
+              <div>📄 {{ formatBytes(conflictDialog.target.size_bytes) }}</div>
+              <div>{{ formatTime(conflictDialog.target.modified_unix) }}</div>
+              <div
+                v-if="conflictDialog.target.blake3_first4kb_hex"
+                class="hash-hint"
+                :title="conflictDialog.target.blake3_first4kb_hex"
+              >
+                {{ conflictDialog.target.blake3_first4kb_hex.slice(0, 12) }}…
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="conflict-actions">
+          <button
+            type="button"
+            class="conflict-btn conflict-overwrite"
+            :disabled="conflictBusy"
+            @click="resolveConflict('overwrite')"
+          >
+            Üzerine yaz
+          </button>
+          <button
+            type="button"
+            class="conflict-btn"
+            :disabled="conflictBusy"
+            @click="resolveConflict('rename')"
+          >
+            Yeni isim ({{ fileNameOf(conflictDialog.original_path) }} (1))
+          </button>
+          <button
+            type="button"
+            class="conflict-btn"
+            :disabled="conflictBusy"
+            @click="resolveConflict('keep_both')"
+          >
+            Her ikisini koru
+          </button>
+          <button
+            type="button"
+            class="conflict-btn conflict-cancel"
+            :disabled="conflictBusy"
+            @click="resolveConflict('cancel')"
+          >
+            İptal
+          </button>
+        </div>
+
+        <p v-if="conflictError" class="err">{{ conflictError }}</p>
+      </div>
+    </div>
+
     <SnapshotPanel />
 
     <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
@@ -1275,8 +1427,10 @@ async function confirmPermDelete(item: StagedItem) {
         <li class="done">Treemap mod 2/4 — squarified (Bölüm 9.1)</li>
         <li class="done">Bubble mod 3/4 — force-relax (Bölüm 9.1)</li>
         <li class="done">Timeline mod 4/4 — mtime ekseni + Y-relax (Bölüm 9.1)</li>
-        <li class="active">Permanent delete + conflict resolution (Bölüm 12.4 + 12.2.4)</li>
-        <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
+        <li class="done">Permanent delete + forensic ledger (Bölüm 12.4)</li>
+        <li class="done">Undo conflict resolution dialog (Bölüm 12.2.4)</li>
+        <li class="active">MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
+        <li>Bölüm 6.2 — eksik ~17 kural, 50+ tamamla</li>
         <li>VSS reference-counted snapshot pool — Discovery Log #002, ertelendi</li>
         <li>Permanent delete + conflict resolution dialog (Bölüm 12.4 + 12.2.4)</li>
         <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
@@ -1951,6 +2105,133 @@ async function confirmPermDelete(item: StagedItem) {
 .perm-err {
   margin: 0;
   font-size: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(3px);
+}
+
+.conflict-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 24px;
+  max-width: 560px;
+  width: calc(100% - 32px);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.conflict-title {
+  margin: 0;
+  font-size: 16px;
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+.conflict-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.conflict-cols {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.conflict-col {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conflict-col-head {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.conflict-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.hash-hint {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.conflict-vs {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conflict-btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+  padding: 8px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.conflict-btn:hover:not(:disabled) {
+  background: #1f6f7c33;
+  border-color: #2a8a99;
+}
+
+.conflict-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.conflict-overwrite {
+  background: #7f1d1d33;
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+
+.conflict-overwrite:hover:not(:disabled) {
+  background: #7f1d1d66;
+}
+
+.conflict-cancel {
+  color: var(--muted);
 }
 
 .tier-pill {

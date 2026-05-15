@@ -19,7 +19,10 @@ pub mod permanent;
 pub mod wal;
 
 pub use cross_volume::{blake3_file, cross_volume_stage_file};
-pub use ops::{list_pending, stage, undo, StagedItem, STAGING_TTL_SECS};
+pub use ops::{
+    list_pending, stage, undo, undo_with_resolution, ConflictResolution, FileSnapshot, StagedItem,
+    UndoOutcome, STAGING_TTL_SECS,
+};
 pub use permanent::{permanent_delete, PermanentDeleteResult};
 pub use wal::{recover_wal, WalRecoveryReport};
 

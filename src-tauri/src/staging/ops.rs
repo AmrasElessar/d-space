@@ -194,17 +194,134 @@ pub fn list_pending(conn: &Connection) -> Result<Vec<StagedItem>> {
     Ok(items)
 }
 
-/// Bölüm 12.2.4 — undo işlemi. Hedef yolda dosya varsa conflict error döner
-/// (v0.1: full conflict resolution dialog yok, sonraki sprint UI'de).
-pub fn undo(id: i64, conn: &Connection) -> Result<String> {
-    let (original, staged): (String, String) = conn
-        .query_row(
-            "SELECT original_path, staged_path FROM staging_items WHERE id = ?1",
-            params![id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(|e| Error::Staging(format!("undo lookup id={}: {}", id, e)))?;
+/// Bölüm 12.2.4.1 — conflict detection için dosya parmak izi.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileSnapshot {
+    pub path: String,
+    pub size_bytes: u64,
+    pub modified_unix: i64,
+    /// İlk 4 KB Blake3 hash, hex. Klasör için None.
+    pub blake3_first4kb_hex: Option<String>,
+    pub is_dir: bool,
+}
 
+/// Bölüm 12.2.4 — undo işleminin dört sonucundan biri.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UndoOutcome {
+    /// Hedef yol boştu — staging dosyası taşındı, satır silindi.
+    Restored { original_path: String },
+    /// Hedefte zaten aynı içerik var — silmek yeterli (idempotent).
+    Idempotent { original_path: String },
+    /// Çakışma — kullanıcı kararı gerekiyor (UI dialog).
+    Conflict {
+        original_path: String,
+        staged: FileSnapshot,
+        target: FileSnapshot,
+    },
+}
+
+/// Bölüm 12.2.4.2 — conflict dialog'unun döndüğü kullanıcı seçimi.
+#[derive(Debug, Clone, Copy, serde::Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictResolution {
+    /// Hedef dosyayı sil, staged'i taşı.
+    Overwrite,
+    /// Staged'i hedefin yanına "ad (1).ext" şeklinde yeni isimle koy.
+    Rename,
+    /// Rename ile aynı semantik (her ikisi de korunur). UI ayrımı için.
+    KeepBoth,
+    /// Undo iptal — staging satırı korunur.
+    Cancel,
+}
+
+fn first_4kb_hash(path: &Path) -> Option<[u8; 32]> {
+    use blake3::Hasher;
+    use std::io::{BufReader, Read};
+    if path.is_dir() {
+        return None;
+    }
+    let file = fs::File::open(path).ok()?;
+    let mut reader = BufReader::with_capacity(4096, file);
+    let mut buf = vec![0u8; 4096];
+    let mut total = 0;
+    while total < 4096 {
+        match reader.read(&mut buf[total..]) {
+            Ok(0) => break,
+            Ok(n) => total += n,
+            Err(_) => return None,
+        }
+    }
+    let mut hasher = Hasher::new();
+    hasher.update(&buf[..total]);
+    Some(*hasher.finalize().as_bytes())
+}
+
+fn hex32(bytes: &[u8; 32]) -> String {
+    let mut s = String::with_capacity(64);
+    for b in bytes {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
+
+fn snapshot_of(path: &Path) -> FileSnapshot {
+    let meta = fs::metadata(path).ok();
+    let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+    let size_bytes = if is_dir {
+        0
+    } else {
+        meta.as_ref().map(|m| m.len()).unwrap_or(0)
+    };
+    let modified_unix = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let blake3_first4kb_hex = first_4kb_hash(path).map(|h| hex32(&h));
+    FileSnapshot {
+        path: path.to_string_lossy().to_string(),
+        size_bytes,
+        modified_unix,
+        blake3_first4kb_hex,
+        is_dir,
+    }
+}
+
+fn lookup_staging(conn: &Connection, id: i64) -> Result<(String, String)> {
+    conn.query_row(
+        "SELECT original_path, staged_path FROM staging_items WHERE id = ?1",
+        params![id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map_err(|e| Error::Staging(format!("undo lookup id={}: {}", id, e)))
+}
+
+fn ensure_parent(dest: &Path) -> Result<()> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| Error::Staging(format!("parent mkdir: {}", e)))?;
+    }
+    Ok(())
+}
+
+fn delete_staging_row(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM staging_items WHERE id = ?1", params![id])
+        .map_err(|e| Error::Staging(format!("DB delete: {}", e)))?;
+    Ok(())
+}
+
+/// Bölüm 12.2.4 — undo. Üç olası dönüş:
+///   * Restored — hedef boştu, taşıma yapıldı.
+///   * Idempotent — hedef zaten aynı içerikte (4KB hash match), staged silindi.
+///   * Conflict — kullanıcı kararı gerek; UI dialog için snapshot'lar döner.
+///
+/// Hash karşılaştırma sadece **ilk 4 KB**. Tam dosya hash büyük dosyalar
+/// için yavaş; çoğu çakışmada ilk 4 KB ayırt etmek için yeterli (Bölüm
+/// 12.2.4.1 hash check'in pratik formu).
+pub fn undo(id: i64, conn: &Connection) -> Result<UndoOutcome> {
+    let (original, staged) = lookup_staging(conn, id)?;
     let src = Path::new(&staged);
     let dest = Path::new(&original);
 
@@ -215,35 +332,135 @@ pub fn undo(id: i64, conn: &Connection) -> Result<String> {
         )));
     }
 
-    // Bölüm 12.2.4.1 — conflict detection
-    if dest.exists() {
-        warn!(
-            dest = %dest.display(),
-            "undo conflict — full resolution v0.2'de"
-        );
+    // Hedef boş — direkt restore.
+    if !dest.exists() {
+        ensure_parent(dest)?;
+        fs::rename(src, dest)
+            .map_err(|e| Error::Staging(format!("undo rename: {}", e)))?;
+        delete_staging_row(conn, id)?;
+        info!(id, original = %original, "undo başarılı (Restored)");
+        return Ok(UndoOutcome::Restored {
+            original_path: original,
+        });
+    }
+
+    // Hedef dolu — hash karşılaştırma (yalnızca dosyalar için).
+    let staged_snap = snapshot_of(src);
+    let target_snap = snapshot_of(dest);
+
+    let both_files = !staged_snap.is_dir && !target_snap.is_dir;
+    let same_hash = both_files
+        && staged_snap.blake3_first4kb_hex.is_some()
+        && staged_snap.blake3_first4kb_hex == target_snap.blake3_first4kb_hex
+        && staged_snap.size_bytes == target_snap.size_bytes;
+
+    if same_hash {
+        // Idempotent: hedef zaten "aynı dosya". Staged'i sil, DB satırı kaldır.
+        if let Err(e) = fs::remove_file(src) {
+            warn!(staged = %src.display(), error = %e, "idempotent silme uyarı");
+        }
+        delete_staging_row(conn, id)?;
+        info!(id, original = %original, "undo idempotent — hedef ile staged aynı");
+        return Ok(UndoOutcome::Idempotent {
+            original_path: original,
+        });
+    }
+
+    warn!(
+        dest = %dest.display(),
+        "undo conflict — kullanıcı kararı gerekli"
+    );
+    Ok(UndoOutcome::Conflict {
+        original_path: original,
+        staged: staged_snap,
+        target: target_snap,
+    })
+}
+
+fn rename_target(dest: &Path) -> PathBuf {
+    let parent = dest.parent().unwrap_or_else(|| Path::new(""));
+    let stem = dest
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "untitled".into());
+    let ext = dest
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    for n in 1..=999 {
+        let candidate = parent.join(format!("{} ({}){}", stem, n, ext));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{} (rename-overflow){}", stem, ext))
+}
+
+/// Bölüm 12.2.4.2 — kullanıcı conflict dialog'unda seçim yaptı. Seçime göre
+/// staged'i yerleştir.
+pub fn undo_with_resolution(
+    id: i64,
+    resolution: ConflictResolution,
+    conn: &Connection,
+) -> Result<UndoOutcome> {
+    let (original, staged) = lookup_staging(conn, id)?;
+    let src = Path::new(&staged);
+    let dest = Path::new(&original);
+
+    if !src.exists() {
         return Err(Error::Staging(format!(
-            "Hedef yolda zaten dosya var: {} \
-             — v0.2'de conflict resolution dialog (üzerine yaz / yeni isim / \
-             her ikisini koru / iptal). Şimdilik manuel: hedefi taşıyın ve \
-             tekrar deneyin.",
-            original
+            "Staging dosyası bulunamadı: {}",
+            staged
         )));
     }
 
-    // Parent dir kayıp olabilir (kullanıcı silmiş olabilir)
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| Error::Staging(format!("parent mkdir: {}", e)))?;
+    match resolution {
+        ConflictResolution::Cancel => {
+            info!(id, "undo conflict iptal — staging satırı korunuyor");
+            Err(Error::Staging("Undo iptal edildi.".into()))
+        }
+        ConflictResolution::Overwrite => {
+            if !dest.exists() {
+                // Race: bu arada hedef boşalmış. Normal restore yap.
+                ensure_parent(dest)?;
+                fs::rename(src, dest)
+                    .map_err(|e| Error::Staging(format!("overwrite rename: {}", e)))?;
+            } else {
+                let target_is_dir = dest.is_dir();
+                if target_is_dir {
+                    fs::remove_dir_all(dest).map_err(|e| {
+                        Error::Staging(format!("overwrite remove_dir_all: {}", e))
+                    })?;
+                } else {
+                    fs::remove_file(dest)
+                        .map_err(|e| Error::Staging(format!("overwrite remove_file: {}", e)))?;
+                }
+                fs::rename(src, dest)
+                    .map_err(|e| Error::Staging(format!("overwrite rename: {}", e)))?;
+            }
+            delete_staging_row(conn, id)?;
+            info!(id, original = %original, "undo conflict → overwrite");
+            Ok(UndoOutcome::Restored {
+                original_path: original,
+            })
+        }
+        ConflictResolution::Rename | ConflictResolution::KeepBoth => {
+            ensure_parent(dest)?;
+            let new_dest = rename_target(dest);
+            fs::rename(src, &new_dest)
+                .map_err(|e| Error::Staging(format!("rename target: {}", e)))?;
+            delete_staging_row(conn, id)?;
+            info!(
+                id,
+                original = %original,
+                new = %new_dest.display(),
+                "undo conflict → rename"
+            );
+            Ok(UndoOutcome::Restored {
+                original_path: new_dest.to_string_lossy().to_string(),
+            })
+        }
     }
-
-    fs::rename(src, dest)
-        .map_err(|e| Error::Staging(format!("undo rename: {}", e)))?;
-
-    conn.execute("DELETE FROM staging_items WHERE id = ?1", params![id])
-        .map_err(|e| Error::Staging(format!("DB delete: {}", e)))?;
-
-    info!(id, original = %original, "undo başarılı");
-    Ok(original)
 }
 
 #[cfg(test)]
@@ -285,9 +502,14 @@ mod tests {
         assert!(!src.exists(), "kaynak taşınmış olmalı");
         assert!(Path::new(&staged.staged_path).exists());
 
-        // Undo
-        let restored = undo(staged.id, &conn).expect("undo başarılı");
-        assert_eq!(restored, src.to_string_lossy());
+        // Undo — hedef boş, Restored beklenir
+        let outcome = undo(staged.id, &conn).expect("undo başarılı");
+        match outcome {
+            UndoOutcome::Restored { original_path } => {
+                assert_eq!(original_path, src.to_string_lossy());
+            }
+            _ => panic!("Restored bekleniyordu"),
+        }
         assert!(src.exists(), "kaynak geri gelmiş olmalı");
         assert!(!Path::new(&staged.staged_path).exists());
 
@@ -297,6 +519,156 @@ mod tests {
 
         // Temizlik
         let _ = fs::remove_dir_all(&work_root);
+    }
+
+    #[test]
+    fn undo_detects_conflict_when_target_differs() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = rusqlite_migration::Migrations::new(vec![
+            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
+        ]);
+        migrations.to_latest(&mut conn).unwrap();
+
+        let work = unique_tmp("conflict");
+        fs::create_dir_all(&work).unwrap();
+        let target = work.join("Rapor.pdf");
+        let staged_dir = work.join("staging-bucket");
+        fs::create_dir_all(&staged_dir).unwrap();
+        let staged_file = staged_dir.join("Rapor.pdf");
+        fs::write(&target, b"yeni icerik 13 mayis").unwrap();
+        fs::write(&staged_file, b"eski icerik 12 mayis").unwrap();
+
+        // staging_items satırını manuel ekle
+        let now = now_unix();
+        conn.execute(
+            "INSERT INTO staging_items
+                (original_path, staged_path, size_bytes, staged_at, expires_at,
+                 is_dir, reason, fallback_tier)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, 'normal')",
+            params![
+                target.to_string_lossy(),
+                staged_file.to_string_lossy(),
+                staged_file.metadata().unwrap().len() as i64,
+                now,
+                now + 86400,
+            ],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+
+        let outcome = undo(id, &conn).expect("undo conflict döner");
+        match outcome {
+            UndoOutcome::Conflict {
+                original_path,
+                staged,
+                target: t,
+            } => {
+                assert_eq!(original_path, target.to_string_lossy());
+                assert_ne!(staged.blake3_first4kb_hex, t.blake3_first4kb_hex);
+                assert_eq!(staged.size_bytes, 20);
+                assert_eq!(t.size_bytes, 20);
+            }
+            other => panic!("Conflict bekleniyordu, geldi: {:?}", other),
+        }
+        // Conflict döndüğünde staged dosya hâlâ orada
+        assert!(staged_file.exists());
+
+        let _ = fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn undo_idempotent_when_target_same_hash() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = rusqlite_migration::Migrations::new(vec![
+            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
+        ]);
+        migrations.to_latest(&mut conn).unwrap();
+
+        let work = unique_tmp("idempotent");
+        fs::create_dir_all(&work).unwrap();
+        let target = work.join("Photo.jpg");
+        let staged_dir = work.join("staging-bucket");
+        fs::create_dir_all(&staged_dir).unwrap();
+        let staged_file = staged_dir.join("Photo.jpg");
+        let bytes = b"identical bytes 1234567890";
+        fs::write(&target, bytes).unwrap();
+        fs::write(&staged_file, bytes).unwrap();
+
+        let now = now_unix();
+        conn.execute(
+            "INSERT INTO staging_items
+                (original_path, staged_path, size_bytes, staged_at, expires_at,
+                 is_dir, reason, fallback_tier)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, 'normal')",
+            params![
+                target.to_string_lossy(),
+                staged_file.to_string_lossy(),
+                bytes.len() as i64,
+                now,
+                now + 86400,
+            ],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+
+        let outcome = undo(id, &conn).expect("idempotent ok");
+        assert!(matches!(outcome, UndoOutcome::Idempotent { .. }));
+        assert!(target.exists(), "hedef korunmalı");
+        assert!(!staged_file.exists(), "staged silinmeli");
+
+        let _ = fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn undo_rename_resolution_keeps_both() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = rusqlite_migration::Migrations::new(vec![
+            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
+        ]);
+        migrations.to_latest(&mut conn).unwrap();
+
+        let work = unique_tmp("rename");
+        fs::create_dir_all(&work).unwrap();
+        let target = work.join("Notes.txt");
+        let staged_dir = work.join("staging-bucket");
+        fs::create_dir_all(&staged_dir).unwrap();
+        let staged_file = staged_dir.join("Notes.txt");
+        fs::write(&target, b"new").unwrap();
+        fs::write(&staged_file, b"old").unwrap();
+
+        let now = now_unix();
+        conn.execute(
+            "INSERT INTO staging_items
+                (original_path, staged_path, size_bytes, staged_at, expires_at,
+                 is_dir, reason, fallback_tier)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, 'normal')",
+            params![
+                target.to_string_lossy(),
+                staged_file.to_string_lossy(),
+                3i64,
+                now,
+                now + 86400,
+            ],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+
+        // İlk önce undo → Conflict
+        let _ = undo(id, &conn).unwrap();
+        // Resolve: Rename
+        let outcome = undo_with_resolution(id, ConflictResolution::Rename, &conn).unwrap();
+        match outcome {
+            UndoOutcome::Restored { original_path } => {
+                let new_path = std::path::PathBuf::from(&original_path);
+                assert!(new_path.exists(), "yeni isimle dosya var olmalı");
+                assert!(new_path.file_name().unwrap().to_string_lossy().contains("(1)"));
+            }
+            _ => panic!("Restored (rename) bekleniyordu"),
+        }
+        // Hedef hâlâ orijinal halinde
+        assert!(target.exists());
+
+        let _ = fs::remove_dir_all(&work);
     }
 
     #[test]

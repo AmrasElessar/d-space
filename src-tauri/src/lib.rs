@@ -19,8 +19,8 @@ use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::locked_file::{probe_file, LockedFileProbe};
 use crate::staging::{
-    list_pending, permanent_delete, recover_wal, stage, undo, PermanentDeleteResult, StagedItem,
-    WalRecoveryReport,
+    list_pending, permanent_delete, recover_wal, stage, undo, undo_with_resolution,
+    ConflictResolution, PermanentDeleteResult, StagedItem, UndoOutcome, WalRecoveryReport,
 };
 use crate::error::{Error, Result};
 use crate::scan::{
@@ -224,18 +224,34 @@ fn run_wal_recovery(state: tauri::State<'_, DbState>) -> Result<WalRecoveryRepor
     recover_wal(&conn)
 }
 
-/// Bölüm 12.2.4 — staging item'ı orijinal yoluna geri taşır. Conflict varsa
-/// hata döner (v0.2'de conflict resolution dialog gelecek).
+/// Bölüm 12.2.4 — staging item'ı orijinal yoluna geri taşır. Üç sonuç:
+/// Restored (hedef boştu), Idempotent (hedef = staged, 4 KB hash match),
+/// Conflict (UI dialog → undo_resolve_staging çağrısı).
 #[tauri::command]
 fn undo_staging(
     id: i64,
     state: tauri::State<'_, DbState>,
-) -> Result<String> {
+) -> Result<UndoOutcome> {
     let conn = state
         .conn
         .lock()
         .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
     undo(id, &conn)
+}
+
+/// Bölüm 12.2.4.2 — conflict dialog'undan dönen kullanıcı seçimini
+/// uygula: Overwrite / Rename / KeepBoth / Cancel.
+#[tauri::command]
+fn undo_resolve_staging(
+    id: i64,
+    resolution: ConflictResolution,
+    state: tauri::State<'_, DbState>,
+) -> Result<UndoOutcome> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    undo_with_resolution(id, resolution, &conn)
 }
 
 /// Bölüm 12.4 — staging item'ı disk'ten kalıcı sil + forensic ledger.
@@ -431,6 +447,7 @@ pub fn run() {
             find_duplicates_cmd,
             probe_locked_file_cmd,
             permanent_delete_cmd,
+            undo_resolve_staging,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
