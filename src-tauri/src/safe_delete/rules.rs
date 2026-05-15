@@ -21,8 +21,11 @@ pub struct Rule {
     pub explanation: &'static str,
 }
 
-/// Bölüm 6.2 — built-in rule seti. Faz 1: 33 kural.
+/// Bölüm 6.2 — built-in rule seti. Faz 1 v0.2: 53 kural (spec 50+ hedef).
 /// Eşit isimli kural eşleşirse ilk eşleşen kullanılır (sıra önemli).
+/// **System safety**: pagefile/swapfile/boot dosyaları LOW score (DOKUNMA);
+/// `match_rule` orijinal isim eşleşmesinden döner — Bölüm 34.5.1 sistem
+/// dosyalarına temas etmemenin tamamlayıcı katmanı.
 pub const RULES: &[Rule] = &[
     // ----- Geliştirici cache / artifact -----
     Rule {
@@ -115,6 +118,66 @@ pub const RULES: &[Rule] = &[
         score: 92,
         explanation: "Bower (eski) cache — `bower install` ile gelir.",
     },
+    Rule {
+        id: "pytest-cache",
+        pattern: Pattern::Name(".pytest_cache"),
+        score: 95,
+        explanation: "Pytest cache — sonraki çalıştırmada yeniden üretilir.",
+    },
+    Rule {
+        id: "mypy-cache",
+        pattern: Pattern::Name(".mypy_cache"),
+        score: 95,
+        explanation: "Mypy type cache — yeniden üretilir.",
+    },
+    Rule {
+        id: "ruff-cache",
+        pattern: Pattern::Name(".ruff_cache"),
+        score: 95,
+        explanation: "Ruff linter cache — yeniden üretilir.",
+    },
+    Rule {
+        id: "parcel-cache",
+        pattern: Pattern::Name(".parcel-cache"),
+        score: 92,
+        explanation: "Parcel bundler cache — yeniden üretilir.",
+    },
+    Rule {
+        id: "turbo-cache",
+        pattern: Pattern::Name(".turbo"),
+        score: 90,
+        explanation: "Turborepo cache — yeniden üretilir.",
+    },
+    Rule {
+        id: "terraform-cache",
+        pattern: Pattern::Name(".terraform"),
+        score: 75,
+        explanation: "Terraform plugin cache — `terraform init` yeniden indirir.",
+    },
+    Rule {
+        id: "coverage",
+        pattern: Pattern::Name("coverage"),
+        score: 80,
+        explanation: "Test coverage raporu — testler yeniden çalıştırılırsa gelir.",
+    },
+    Rule {
+        id: "obj-dotnet",
+        pattern: Pattern::Name("obj"),
+        score: 75,
+        explanation: ".NET intermediate build artifact — `dotnet build` ile gelir.",
+    },
+    Rule {
+        id: "idea-config",
+        pattern: Pattern::Name(".idea"),
+        score: 45,
+        explanation: "JetBrains IDE projesi ayarları — değerli kişisel yapılandırma içerebilir.",
+    },
+    Rule {
+        id: "vs-config",
+        pattern: Pattern::Name(".vs"),
+        score: 50,
+        explanation: "Visual Studio çalışma alanı durumu — yeniden açıldığında kurulur.",
+    },
     // ----- Tarayıcı / oyun launcher cache -----
     Rule {
         id: "shadercache",
@@ -139,6 +202,24 @@ pub const RULES: &[Rule] = &[
         pattern: Pattern::Name("GPUCache"),
         score: 92,
         explanation: "Chromium GPU cache — tarayıcı yeniden üretir.",
+    },
+    Rule {
+        id: "cache-data",
+        pattern: Pattern::Name("Cache_Data"),
+        score: 90,
+        explanation: "Discord/Electron uygulama cache — yeniden üretilir.",
+    },
+    Rule {
+        id: "service-worker",
+        pattern: Pattern::Name("Service Worker"),
+        score: 85,
+        explanation: "PWA service worker cache — yeniden indirilir.",
+    },
+    Rule {
+        id: "msocache",
+        pattern: Pattern::Name("MSOCache"),
+        score: 75,
+        explanation: "Office installer cache — yeniden indirilebilir.",
     },
     // ----- Geçici / log -----
     Rule {
@@ -177,6 +258,42 @@ pub const RULES: &[Rule] = &[
         score: 70,
         explanation: "Eski sürüm yedeği — değerlendirin.",
     },
+    Rule {
+        id: "ext-dmp",
+        pattern: Pattern::Extension(".dmp"),
+        score: 85,
+        explanation: "Crash dump dosyası — kritik veri değil.",
+    },
+    Rule {
+        id: "ext-etl",
+        pattern: Pattern::Extension(".etl"),
+        score: 88,
+        explanation: "Windows event trace log — eski performans izleri.",
+    },
+    Rule {
+        id: "ext-swp",
+        pattern: Pattern::Extension(".swp"),
+        score: 90,
+        explanation: "Vim swap dosyası — vim açık değilse silinebilir.",
+    },
+    Rule {
+        id: "ext-swo",
+        pattern: Pattern::Extension(".swo"),
+        score: 90,
+        explanation: "Vim swap dosyası (ek) — silinebilir.",
+    },
+    Rule {
+        id: "ext-pdb",
+        pattern: Pattern::Extension(".pdb"),
+        score: 55,
+        explanation: ".NET/C++ debug sembol dosyası — yeniden derleme ile gelir, ama mevcut binary debug'unu kaybedersin.",
+    },
+    Rule {
+        id: "ext-ilk",
+        pattern: Pattern::Extension(".ilk"),
+        score: 88,
+        explanation: "MSVC incremental link cache — yeniden derleme ile üretilir.",
+    },
     // ----- Windows özel -----
     Rule {
         id: "hiberfil",
@@ -208,6 +325,31 @@ pub const RULES: &[Rule] = &[
         pattern: Pattern::Name("$RECYCLE.BIN"),
         score: 88,
         explanation: "Geri Dönüşüm Kutusu — kullanıcı zaten sildiği şeyleri tutar.",
+    },
+    // ----- System dosyaları — DOKUNMA (kullanıcıyı koru) -----
+    Rule {
+        id: "pagefile",
+        pattern: Pattern::Name("pagefile.sys"),
+        score: 3,
+        explanation: "Windows sayfa dosyası — sistem yönetir, asla manuel silme.",
+    },
+    Rule {
+        id: "swapfile",
+        pattern: Pattern::Name("swapfile.sys"),
+        score: 3,
+        explanation: "Windows swap dosyası — sistem yönetir.",
+    },
+    Rule {
+        id: "bootmgr",
+        pattern: Pattern::Name("bootmgr"),
+        score: 1,
+        explanation: "Windows boot manager — silersen sistem açılmaz.",
+    },
+    Rule {
+        id: "bootnxt",
+        pattern: Pattern::Name("BOOTNXT"),
+        score: 1,
+        explanation: "Windows boot config — silersen önyükleme bozulur.",
     },
     // ----- Kullanıcı verisi koruma (LOW score = DOKUNMA) -----
     Rule {
@@ -245,6 +387,12 @@ pub const RULES: &[Rule] = &[
         pattern: Pattern::Name("Downloads"),
         score: 35,
         explanation: "İndirilenler — gözden geçirilmesi gerekir, otomatik silmeyin.",
+    },
+    Rule {
+        id: "appdata-roaming",
+        pattern: Pattern::Name("AppData"),
+        score: 25,
+        explanation: "Uygulama verisi — ayar/profil içerir, dikkat.",
     },
 ];
 
@@ -301,5 +449,68 @@ mod tests {
     fn unknown_returns_none() {
         assert!(match_rule("randomname12345", false).is_none());
         assert!(match_rule("randomdir12345", true).is_none());
+    }
+
+    #[test]
+    fn rule_count_meets_spec_target() {
+        // Bölüm 6.2 — "50+ kural" hedefi.
+        assert!(
+            RULES.len() >= 50,
+            "Spec 50+ kural istiyor, mevcut {}",
+            RULES.len()
+        );
+    }
+
+    #[test]
+    fn system_files_protected_with_low_score() {
+        // pagefile/swapfile/bootmgr → DOKUNMA tier (skor ≤ 30)
+        for name in ["pagefile.sys", "swapfile.sys", "bootmgr", "BOOTNXT"] {
+            let r = match_rule(name, false).unwrap_or_else(|| panic!("{} eşleşmeli", name));
+            assert!(
+                r.score <= 10,
+                "{} sistem dosyası çok düşük skor olmalı (got {})",
+                name,
+                r.score
+            );
+        }
+    }
+
+    #[test]
+    fn crash_and_temp_extensions_high_score() {
+        for (name, expected_min) in [
+            ("error.dmp", 80),
+            ("trace.etl", 80),
+            (".session.swp", 80),
+            ("file.tmp", 90),
+        ] {
+            let r = match_rule(name, false).unwrap_or_else(|| panic!("{} eşleşmeli", name));
+            assert!(
+                r.score >= expected_min,
+                "{} → skor {} (>= {} bekleniyordu)",
+                name,
+                r.score,
+                expected_min
+            );
+        }
+    }
+
+    #[test]
+    fn dev_caches_recognized() {
+        for name in [
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".parcel-cache",
+            ".turbo",
+            ".terraform",
+            "coverage",
+            "obj",
+        ] {
+            assert!(
+                match_rule(name, true).is_some(),
+                "{} dev cache kuralı bekleniyor",
+                name
+            );
+        }
     }
 }

@@ -1431,8 +1431,9 @@ async function confirmPermDelete(item: StagedItem) {
         <li class="done">Undo conflict resolution dialog (Bölüm 12.2.4)</li>
         <li class="done">CI gates v0.1 — fmt + clippy + test + build (Bölüm 20.4)</li>
         <li class="done">Release workflow — MSI + NSIS tauri-action (Bölüm 21.1)</li>
-        <li class="active">Bölüm 6.2 — eksik ~17 kural, 50+ kural tamamla</li>
-        <li>Kod imzalama + Tauri auto-updater (Bölüm 18.2 + 21.4)</li>
+        <li class="done">Bölüm 6.2 — 53 kural (50+ hedef tutuldu)</li>
+        <li class="active">Kod imzalama + Tauri auto-updater (Bölüm 18.2 + 21.4)</li>
+        <li>v2 ML scorer — TFLite tier'lı (Bölüm 6.5)</li>
         <li>VSS reference-counted snapshot pool — Discovery Log #002, ertelendi</li>
         <li>Permanent delete + conflict resolution dialog (Bölüm 12.4 + 12.2.4)</li>
         <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
