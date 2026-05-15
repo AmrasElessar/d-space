@@ -20,13 +20,15 @@
 
 use crate::error::{Error, Result};
 use crate::scan::tree::ROOT_RECORD;
-use crate::scan::walk::{MftEntries, RawMftEntry};
+use crate::scan::walk::{MftEntries, ProgressCb, RawMftEntry, ScanProgress};
 use crate::scan::NodeId;
 use std::collections::{HashMap, VecDeque};
 use std::fs::Metadata;
 use std::path::PathBuf;
 use std::time::{Instant, UNIX_EPOCH};
 use tracing::{debug, info, warn};
+
+const FALLBACK_PROGRESS_INTERVAL: u64 = 500;
 
 /// `fs::metadata().modified()` → Unix saniye. Hata veya pre-epoch ise 0.
 fn metadata_mtime_unix(metadata: &Metadata) -> i64 {
@@ -51,9 +53,18 @@ fn drive_to_root(drive: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(format!(r"{}:\", letter)))
 }
 
-/// BFS yürüyüş. Her dizin için `read_dir` çağırır, child'ları sıraya alır.
-/// Symlink ve reparse point'ler atlanır.
+/// Geriye uyumlu — progress callback olmadan.
 pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
+    scan_find_first_with_progress(drive, None)
+}
+
+/// BFS yürüyüş. Her dizin için `read_dir` çağırır, child'ları sıraya alır.
+/// Symlink ve reparse point'ler atlanır. `progress_cb` her N entry'de bir
+/// çağrılır (Bölüm 9.6.5 streaming feedback).
+pub fn scan_find_first_with_progress(
+    drive: &str,
+    progress_cb: Option<ProgressCb<'_>>,
+) -> Result<MftEntries> {
     let start = Instant::now();
     let root = drive_to_root(drive)?;
     debug!(root = %root.display(), "FindFirstFile fallback başlıyor");
@@ -69,8 +80,22 @@ pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
     let mut skipped_errors: u64 = 0;
     let mut skipped_symlinks: u64 = 0;
     let mut max_depth_hits: u64 = 0;
+    let mut visited_dirs: u64 = 0;
 
     while let Some((dir, parent_id, depth)) = queue.pop_front() {
+        visited_dirs += 1;
+        if let Some(cb) = progress_cb {
+            if entries.len() as u64 % FALLBACK_PROGRESS_INTERVAL == 0 {
+                cb(&ScanProgress {
+                    phase: "fallback_walk",
+                    visited: entries.len() as u64,
+                    total_estimate: 0, // bilinmiyor, BFS
+                    in_use: visited_dirs,
+                    last_name: dir.display().to_string(),
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                });
+            }
+        }
         if depth >= MAX_DEPTH {
             max_depth_hits += 1;
             continue;

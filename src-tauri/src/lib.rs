@@ -26,8 +26,9 @@ use crate::safe_delete::{
 };
 use crate::scan::{
     is_elevated, node_path, pick_strategy, probe_cloud_state, probe_ntfs,
-    scan_to_tree_with_user_rules, top_consumers, walk_mft, window_query, CloudProbe, MftProbe,
-    MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState, SortKey, WindowResult,
+    scan_to_tree_with_progress, top_consumers, walk_mft, window_query, CloudProbe, MftProbe,
+    MftWalkStats, Node, ScanProgress, ScanStrategy, ScanSummary, ScanTreeState, SortKey,
+    WindowResult,
 };
 use crate::snapshot::{DeltaResult, SnapshotMeta};
 use crate::staging::{
@@ -109,15 +110,17 @@ async fn walk_volume(drive: String) -> Result<MftWalkStats> {
         .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
 }
 
-/// Bölüm 4.3 Adım 3 + 4.4 + 6.4 — tam MFT entry koleksiyonu + hiyerarşi +
-/// agregat. Bölüm 6.4 user rules önce yüklenir, build_tree user override
-/// için snapshot listesini kullanır.
+/// Bölüm 4.3 Adım 3 + 4.4 + 6.4 + 9.6.5 — tam MFT entry koleksiyonu + hiyerarşi +
+/// agregat. Bölüm 6.4 user rules önce yüklenir; Bölüm 9.6.5 progress event'leri
+/// her N entry'de `scan-progress` olarak emit edilir.
 #[tauri::command]
-async fn scan_full(
+async fn scan_full<R: tauri::Runtime>(
     drive: String,
+    window: tauri::WebviewWindow<R>,
     scan_state: tauri::State<'_, ScanTreeState>,
     db_state: tauri::State<'_, DbState>,
 ) -> Result<ScanSummary> {
+    use tauri::Emitter;
     let drv = drive.clone();
     let user_rules = {
         let conn = db_state
@@ -126,10 +129,40 @@ async fn scan_full(
             .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
         list_active_snapshots(&conn)?
     };
-    let (summary, tree) =
-        tokio::task::spawn_blocking(move || scan_to_tree_with_user_rules(&drv, &user_rules))
-            .await
-            .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
+
+    // Progress channel: scan thread → emit task. spawn_blocking içinden
+    // doğrudan window.emit çağrısı thread-safety açısından güvenli ama
+    // mpsc decouple gathering+emit, smooth rate-limiting yapar.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ScanProgress>();
+    let window_for_emit = window.clone();
+    let emit_task = tokio::spawn(async move {
+        while let Some(progress) = rx.recv().await {
+            let _ = window_for_emit.emit("scan-progress", &progress);
+        }
+    });
+
+    let (summary, tree) = tokio::task::spawn_blocking(move || {
+        let cb: Box<dyn Fn(&ScanProgress) + Send + Sync> = Box::new(move |p| {
+            let _ = tx.send(p.clone());
+        });
+        scan_to_tree_with_progress(&drv, &user_rules, Some(cb.as_ref()))
+    })
+    .await
+    .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
+
+    emit_task.abort();
+    // Son bir emit — tamamlandı.
+    let _ = window.emit(
+        "scan-progress",
+        &ScanProgress {
+            phase: "done",
+            visited: summary.node_count,
+            total_estimate: summary.node_count,
+            in_use: summary.node_count,
+            last_name: String::new(),
+            elapsed_ms: summary.collect_elapsed_ms + summary.build_elapsed_ms,
+        },
+    );
 
     let arc_tree = Arc::new(tree);
     {

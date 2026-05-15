@@ -55,6 +55,22 @@ pub struct MftEntries {
     pub elapsed_ms: u64,
 }
 
+/// Bölüm 9.6.5 — tarama ilerlemesi event'i. Backend her N entry'de bir emit eder.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanProgress {
+    pub phase: &'static str,
+    pub visited: u64,
+    pub total_estimate: u64,
+    pub in_use: u64,
+    pub last_name: String,
+    pub elapsed_ms: u64,
+}
+
+/// `Fn(&ScanProgress)` callback alias — heap-allocated closure'lardan kaçınmak için.
+pub type ProgressCb<'a> = &'a (dyn Fn(&ScanProgress) + Send + Sync);
+
+const MFT_PROGRESS_INTERVAL: u64 = 5000;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MftWalkStats {
     pub drive: String,
@@ -156,9 +172,18 @@ fn extract_full(file: &NtfsFile, handle: &mut File) -> Option<(String, u64, u64,
     None
 }
 
+/// Geriye uyumlu — progress callback olmadan.
+pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
+    collect_mft_entries_with_progress(drive, None)
+}
+
 /// Tam MFT entry koleksiyonu — `build_tree` için besin kaynağı.
 /// System records (0-15) atlanır. Volume root NTFS'te record 5'tir.
-pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
+/// `progress_cb` her `MFT_PROGRESS_INTERVAL` entry'de bir çağrılır (Bölüm 9.6.5).
+pub fn collect_mft_entries_with_progress(
+    drive: &str,
+    progress_cb: Option<ProgressCb<'_>>,
+) -> Result<MftEntries> {
     let start = Instant::now();
     let volume_path = normalize_volume_path(drive)?;
 
@@ -179,11 +204,26 @@ pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
 
     let mut entries: Vec<RawMftEntry> = Vec::with_capacity((cap as usize / 2).max(1024));
     let mut skipped = 0u64;
+    let mut last_name = String::new();
 
     // Root directory (record 5) sentetik düğüm olarak eklenmez —
     // collect aşamasında kullanıcı entries'i temiz görür; build_tree
     // gerekirse root sentetik düğüm üretir.
     for record_no in 16..cap {
+        // Progress event
+        if let Some(cb) = progress_cb {
+            if (record_no - 16) % MFT_PROGRESS_INTERVAL == 0 {
+                cb(&ScanProgress {
+                    phase: "mft_walk",
+                    visited: record_no - 16,
+                    total_estimate: cap - 16,
+                    in_use: entries.len() as u64,
+                    last_name: last_name.clone(),
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                });
+            }
+        }
+
         let file = match ntfs.file(&mut handle, record_no) {
             Ok(f) => f,
             Err(_) => {
@@ -195,6 +235,7 @@ pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
             continue;
         }
         if let Some((name, parent, size, is_dir, mtime)) = extract_full(&file, &mut handle) {
+            last_name = name.clone();
             entries.push(RawMftEntry {
                 record_no,
                 parent_record_no: parent,

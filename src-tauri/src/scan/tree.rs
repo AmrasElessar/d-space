@@ -12,9 +12,11 @@
 // query'leri ile çalışır (Bölüm 9.6 lazy viewport).
 
 use crate::safe_delete::UserRuleSnapshot;
-use crate::scan::find_first::scan_find_first;
+use crate::scan::find_first::{scan_find_first, scan_find_first_with_progress};
 use crate::scan::privilege::is_elevated;
-use crate::scan::walk::{collect_mft_entries, RawMftEntry};
+use crate::scan::walk::{
+    collect_mft_entries, collect_mft_entries_with_progress, ProgressCb, RawMftEntry,
+};
 use crate::scan::{NodeId, ScanStrategy};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -432,10 +434,22 @@ pub fn scan_to_tree_with_user_rules(
     drive: &str,
     user_rules: &[UserRuleSnapshot],
 ) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    scan_to_tree_with_progress(drive, user_rules, None)
+}
+
+/// Bölüm 5.2A + 6.4 + 9.6.5 — strateji seçimi + canlı progress callback.
+pub fn scan_to_tree_with_progress(
+    drive: &str,
+    user_rules: &[UserRuleSnapshot],
+    progress_cb: Option<ProgressCb<'_>>,
+) -> crate::error::Result<(ScanSummary, ScanTree)> {
     if is_elevated() {
         debug!("elevated process — MFT yolu denenecek");
-        match scan_to_tree_mft_with_user_rules(drive, user_rules) {
-            Ok(r) => return Ok(r),
+        let collected = collect_mft_entries_with_progress(drive, progress_cb);
+        match collected {
+            Ok(c) => {
+                return chain_into_summary(drive, ScanStrategy::DirectRawVolume, c, user_rules)
+            }
             Err(e) => {
                 tracing::warn!(?e, "MFT path başarısız → fallback");
             }
@@ -443,7 +457,13 @@ pub fn scan_to_tree_with_user_rules(
     } else {
         debug!("elevated değil — fallback yolu");
     }
-    scan_to_tree_fallback_with_user_rules(drive, user_rules)
+    let collected = scan_find_first_with_progress(drive, progress_cb)?;
+    chain_into_summary(
+        drive,
+        ScanStrategy::FindFirstFileFallback,
+        collected,
+        user_rules,
+    )
 }
 
 fn chain_into_summary(

@@ -15,6 +15,7 @@ import SnapshotPanel from "./components/SnapshotPanel.vue";
 import DuplicatePanel from "./components/DuplicatePanel.vue";
 import Onboarding from "./components/Onboarding.vue";
 import UserRulesPanel from "./components/UserRulesPanel.vue";
+import ScanProgress from "./components/ScanProgress.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -247,6 +248,17 @@ interface CloudProbe {
 
 const cloudProbes = ref<Map<number, CloudProbe>>(new Map());
 const cloudProbeBusyId = ref<number | null>(null);
+
+// Bölüm 9.6.5 + 15.4 — canlı tarama progress.
+interface ScanProgressEvent {
+  phase: string;
+  visited: number;
+  total_estimate: number;
+  in_use: number;
+  last_name: string;
+  elapsed_ms: number;
+}
+const scanProgress = ref<ScanProgressEvent | null>(null);
 
 async function probeCloud(node: TreeNode) {
   if (node.is_dir) return;
@@ -601,6 +613,7 @@ onMounted(() => {
 });
 
 let trayUnlisten: UnlistenFn | null = null;
+let progressUnlisten: UnlistenFn | null = null;
 
 onMounted(async () => {
   // Bölüm 13.1 — tray "Tara C:" menüsünden gelen event'i yakala.
@@ -615,6 +628,17 @@ onMounted(async () => {
   } catch (err) {
     console.warn("tray listener kurulamadı", err);
   }
+  // Bölüm 9.6.5 — canlı tarama progress event listener.
+  try {
+    progressUnlisten = await listen<ScanProgressEvent>(
+      "scan-progress",
+      (event) => {
+        scanProgress.value = event.payload;
+      },
+    );
+  } catch (err) {
+    console.warn("scan-progress listener kurulamadı", err);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -622,6 +646,10 @@ onBeforeUnmount(() => {
   if (trayUnlisten) {
     trayUnlisten();
     trayUnlisten = null;
+  }
+  if (progressUnlisten) {
+    progressUnlisten();
+    progressUnlisten = null;
   }
 });
 
@@ -857,6 +885,7 @@ async function runFullScan() {
   viewWindow.value = null;
   breadcrumb.value = [];
   driveWarning.value = null;
+  scanProgress.value = null;
   // Bölüm 33.2 — taramadan önce volume preflight, file_system + drive_kind
   // bilgisinden uyarı çıkar.
   try {
@@ -2019,6 +2048,8 @@ async function confirmPermDelete(item: StagedItem) {
       :visible="onboardingVisible"
       @finish="finishOnboarding"
     />
+
+    <ScanProgress :visible="scanning" :progress="scanProgress" />
 
     <SnapshotPanel />
 

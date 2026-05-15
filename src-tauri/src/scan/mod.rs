@@ -25,10 +25,12 @@ pub use mft::{probe_ntfs, MftProbe};
 pub use privilege::is_elevated;
 pub use tree::{
     build_tree, build_tree_with_user_rules, node_full_path, node_path, scan_to_tree,
-    scan_to_tree_with_user_rules, top_consumers, window_query, Node, ScanSummary, ScanTree,
-    ScanTreeState, SortKey, WindowResult,
+    scan_to_tree_with_progress, scan_to_tree_with_user_rules, top_consumers, window_query, Node,
+    ScanSummary, ScanTree, ScanTreeState, SortKey, WindowResult,
 };
-pub use walk::{collect_mft_entries, walk_mft, MftEntries, MftWalkStats, RawMftEntry};
+pub use walk::{
+    collect_mft_entries, walk_mft, MftEntries, MftWalkStats, ProgressCb, RawMftEntry, ScanProgress,
+};
 
 use serde::Serialize;
 
