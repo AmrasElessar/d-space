@@ -4,10 +4,11 @@ import { ref, onMounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import Sunburst from "./components/Sunburst.vue";
 import Treemap from "./components/Treemap.vue";
+import Bubble from "./components/Bubble.vue";
 import SnapshotPanel from "./components/SnapshotPanel.vue";
 import DuplicatePanel from "./components/DuplicatePanel.vue";
 
-type ViewMode = "sunburst" | "treemap";
+type ViewMode = "sunburst" | "treemap" | "bubble";
 
 interface AppInfo {
   name: string;
@@ -864,10 +865,15 @@ function closeLockProbe(id: number) {
         >
           Treemap
         </button>
-        <span class="view-chip view-chip-disabled" title="v0.3 sprint">
+        <button
+          type="button"
+          class="view-chip"
+          :class="{ 'view-chip-active': viewMode === 'bubble' }"
+          @click="viewMode = 'bubble'"
+        >
           Bubble
-        </span>
-        <span class="view-chip view-chip-disabled" title="v0.3 sprint">
+        </button>
+        <span class="view-chip view-chip-disabled" title="mtime field gerekli — sonraki sprint">
           Timeline
         </span>
       </div>
@@ -879,6 +885,11 @@ function closeLockProbe(id: number) {
       />
       <Treemap
         v-else-if="viewMode === 'treemap'"
+        :data="viewWindow"
+        @drill="drillInto"
+      />
+      <Bubble
+        v-else-if="viewMode === 'bubble'"
         :data="viewWindow"
         @drill="drillInto"
       />
@@ -1145,7 +1156,10 @@ function closeLockProbe(id: number) {
         <li class="done">Duplicate Detector v0.1 — Blake3 (Bölüm 7)</li>
         <li class="done">Locked file probe v0.1 — share-violation + RestartManager (Bölüm 34.1/34.3/34.4)</li>
         <li class="done">Treemap mod 2/4 — squarified (Bölüm 9.1)</li>
-        <li class="active">Bubble + timeline görselleştirme (Bölüm 9.1 mod 3/4)</li>
+        <li class="done">Bubble mod 3/4 — force-relax (Bölüm 9.1)</li>
+        <li class="active">Timeline mod 4/4 — mtime field + zaman ekseni (Bölüm 9.1)</li>
+        <li>Permanent delete + conflict resolution (Bölüm 12.4 + 12.2.4)</li>
+        <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
         <li>VSS reference-counted snapshot pool — Discovery Log #002, ertelendi</li>
         <li>Permanent delete + conflict resolution dialog (Bölüm 12.4 + 12.2.4)</li>
         <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
