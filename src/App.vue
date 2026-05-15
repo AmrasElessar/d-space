@@ -14,6 +14,7 @@ import Timeline from "./components/Timeline.vue";
 import SnapshotPanel from "./components/SnapshotPanel.vue";
 import DuplicatePanel from "./components/DuplicatePanel.vue";
 import Onboarding from "./components/Onboarding.vue";
+import UserRulesPanel from "./components/UserRulesPanel.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -143,6 +144,7 @@ interface TreeNode {
   aggregate_size: number;
   is_dir: boolean;
   score: number | null;
+  /** Bölüm 6.4 — "user" eşleşmesi kullanıcı kuralından, diğerleri built-in id'si */
   score_rule: string | null;
   score_reason: string | null;
   modified_unix: number;
@@ -1865,6 +1867,8 @@ async function confirmPermDelete(item: StagedItem) {
     <SnapshotPanel />
 
     <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
+
+    <UserRulesPanel v-if="showAdvanced" />
 
     <section v-if="showAdvanced && expiredList.length > 0" class="card">
       <h2>Süresi geçmiş öğeler (Bölüm 12.2.1)</h2>

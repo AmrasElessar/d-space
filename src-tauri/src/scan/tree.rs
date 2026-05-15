@@ -11,6 +11,7 @@
 // tam ağaca sahip olmaz — sadece `tree_summary` ve `top_consumers` window
 // query'leri ile çalışır (Bölüm 9.6 lazy viewport).
 
+use crate::safe_delete::UserRuleSnapshot;
 use crate::scan::find_first::scan_find_first;
 use crate::scan::privilege::is_elevated;
 use crate::scan::walk::{collect_mft_entries, RawMftEntry};
@@ -37,8 +38,10 @@ pub struct Node {
     pub is_dir: bool,
     /// Bölüm 6 safe-to-delete skor (0-100). None = eşleşen kural yok.
     pub score: Option<u8>,
-    pub score_rule: Option<&'static str>,
-    pub score_reason: Option<&'static str>,
+    /// Eşleşen kural id'si. Built-in için sabit (örn. "node_modules"),
+    /// kullanıcı tanımlı için "user:<id>" (Bölüm 6.4).
+    pub score_rule: Option<String>,
+    pub score_reason: Option<String>,
     /// `$STANDARD_INFORMATION.modification_time` Unix saniye. Bölüm 9.1 mod 4/4
     /// Timeline ekseni için. 0 = bilinmiyor (sentetik root veya hata).
     pub modified_unix: i64,
@@ -71,11 +74,23 @@ pub struct ScanSummary {
     pub build_elapsed_ms: u64,
 }
 
+/// Geriye dönük uyumlu wrapper — user rule snapshot'ları olmadan çağırır.
+pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
+    build_tree_with_user_rules(volume_id, raw, &[])
+}
+
 /// Raw MFT entry'lerinden tam ScanTree kurar:
 /// 1. Düğümleri yerleştirir, ROOT_RECORD sentetik garanti.
 /// 2. Çocuk listelerini oluşturur (orphan'lar root altına).
 /// 3. Walk-up agregat: her dosya boyutu üst klasörlerine eklenir.
-pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
+///
+/// Bölüm 6.4 — `user_rules` snapshot'ları built-in motoruna **öncelikli**
+/// olarak değerlendirilir. Eşleşme yoksa `safe_delete::match_rule` çağrılır.
+pub fn build_tree_with_user_rules(
+    volume_id: String,
+    raw: Vec<RawMftEntry>,
+    user_rules: &[UserRuleSnapshot],
+) -> ScanTree {
     let start = Instant::now();
     let count = raw.len();
 
@@ -83,17 +98,31 @@ pub fn build_tree(volume_id: String, raw: Vec<RawMftEntry>) -> ScanTree {
     let mut children: HashMap<NodeId, Vec<NodeId>> = HashMap::with_capacity(count / 8 + 1);
 
     // 1. Düğüm yerleştirme — self-cycle (record == parent) None.
-    //    Aynı zamanda Bölüm 6 safe-to-delete kuralları uygulanır.
+    //    Aynı zamanda Bölüm 6.4 (user rules öncelikli) + Bölüm 6.2 (built-in)
+    //    safe-to-delete kuralları uygulanır.
     for e in &raw {
         let parent_opt = if e.parent_record_no == e.record_no {
             None
         } else {
             Some(e.parent_record_no)
         };
-        let rule_match = crate::safe_delete::match_rule(&e.name, e.is_dir);
-        let (score, score_rule, score_reason) = match rule_match {
-            Some(r) => (Some(r.score), Some(r.id), Some(r.explanation)),
-            None => (None, None, None),
+
+        let (score, score_rule, score_reason) = if let Some(ur) =
+            crate::safe_delete::match_user_rule(user_rules, &e.name, e.is_dir)
+        {
+            (
+                Some(ur.score),
+                Some("user".to_string()),
+                Some(ur.explanation.clone()),
+            )
+        } else if let Some(r) = crate::safe_delete::match_rule(&e.name, e.is_dir) {
+            (
+                Some(r.score),
+                Some(r.id.to_string()),
+                Some(r.explanation.to_string()),
+            )
+        } else {
+            (None, None, None)
         };
         nodes.insert(
             e.record_no,
@@ -361,26 +390,52 @@ pub fn node_path(tree: &ScanTree, id: NodeId) -> Vec<Node> {
     path
 }
 
-/// `collect_mft_entries` + `build_tree` zincirleyen MFT-only API.
+/// Geriye uyumlu — user rules olmadan MFT scan.
 pub fn scan_to_tree_mft(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    scan_to_tree_mft_with_user_rules(drive, &[])
+}
+
+pub fn scan_to_tree_mft_with_user_rules(
+    drive: &str,
+    user_rules: &[UserRuleSnapshot],
+) -> crate::error::Result<(ScanSummary, ScanTree)> {
     debug!(drive, "MFT full scan başlıyor");
     let collected = collect_mft_entries(drive)?;
-    chain_into_summary(drive, ScanStrategy::DirectRawVolume, collected)
+    chain_into_summary(drive, ScanStrategy::DirectRawVolume, collected, user_rules)
 }
 
-/// `scan_find_first` + `build_tree` zincirleyen FindFirstFile fallback API.
+/// Geriye uyumlu — user rules olmadan fallback scan.
 pub fn scan_to_tree_fallback(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    scan_to_tree_fallback_with_user_rules(drive, &[])
+}
+
+pub fn scan_to_tree_fallback_with_user_rules(
+    drive: &str,
+    user_rules: &[UserRuleSnapshot],
+) -> crate::error::Result<(ScanSummary, ScanTree)> {
     debug!(drive, "FindFirstFile fallback scan başlıyor");
     let collected = scan_find_first(drive)?;
-    chain_into_summary(drive, ScanStrategy::FindFirstFileFallback, collected)
+    chain_into_summary(
+        drive,
+        ScanStrategy::FindFirstFileFallback,
+        collected,
+        user_rules,
+    )
 }
 
-/// Bölüm 5.2A — yetkiye göre otomatik strateji seçimi. MFT denenir, başarısız
-/// olursa fallback'e düşer (Bölüm 33.2 Katman A → Katman B pattern).
+/// Bölüm 5.2A — yetkiye göre otomatik strateji seçimi. Geriye uyumlu.
 pub fn scan_to_tree(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)> {
+    scan_to_tree_with_user_rules(drive, &[])
+}
+
+/// Bölüm 5.2A + 6.4 — user rules ile birlikte otomatik strateji seçimi.
+pub fn scan_to_tree_with_user_rules(
+    drive: &str,
+    user_rules: &[UserRuleSnapshot],
+) -> crate::error::Result<(ScanSummary, ScanTree)> {
     if is_elevated() {
         debug!("elevated process — MFT yolu denenecek");
-        match scan_to_tree_mft(drive) {
+        match scan_to_tree_mft_with_user_rules(drive, user_rules) {
             Ok(r) => return Ok(r),
             Err(e) => {
                 tracing::warn!(?e, "MFT path başarısız → fallback");
@@ -389,17 +444,18 @@ pub fn scan_to_tree(drive: &str) -> crate::error::Result<(ScanSummary, ScanTree)
     } else {
         debug!("elevated değil — fallback yolu");
     }
-    scan_to_tree_fallback(drive)
+    scan_to_tree_fallback_with_user_rules(drive, user_rules)
 }
 
 fn chain_into_summary(
     drive: &str,
     strategy: ScanStrategy,
     collected: crate::scan::walk::MftEntries,
+    user_rules: &[UserRuleSnapshot],
 ) -> crate::error::Result<(ScanSummary, ScanTree)> {
     let collect_elapsed_ms = collected.elapsed_ms;
     let volume_id = collected.volume_path.clone();
-    let tree = build_tree(volume_id.clone(), collected.entries);
+    let tree = build_tree_with_user_rules(volume_id.clone(), collected.entries, user_rules);
     let summary = ScanSummary {
         drive: drive.to_string(),
         volume_id,

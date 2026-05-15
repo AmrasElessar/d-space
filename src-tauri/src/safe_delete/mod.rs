@@ -14,8 +14,13 @@
 //   * v2 stub trait (Bölüm 26.1).
 
 pub mod rules;
+pub mod user_rules;
 
 pub use rules::{match_rule, Rule, RULES};
+pub use user_rules::{
+    add_rule, delete_rule, list_active_snapshots, list_rules, match_user_rule, toggle_rule,
+    UserPatternType, UserRule, UserRuleSnapshot,
+};
 
 use serde::Serialize;
 

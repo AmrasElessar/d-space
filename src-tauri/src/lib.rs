@@ -20,10 +20,14 @@ use crate::db::{db_info, get_setting, open_db, set_setting, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::error::{Error, Result};
 use crate::locked_file::{probe_file, LockedFileProbe};
+use crate::safe_delete::{
+    add_rule as add_user_rule, delete_rule as delete_user_rule, list_active_snapshots,
+    list_rules as list_user_rules, toggle_rule as toggle_user_rule, UserPatternType, UserRule,
+};
 use crate::scan::{
-    is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
-    window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState, SortKey,
-    WindowResult,
+    is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree_with_user_rules, top_consumers,
+    walk_mft, window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
+    SortKey, WindowResult,
 };
 use crate::snapshot::{DeltaResult, SnapshotMeta};
 use crate::staging::{
@@ -105,18 +109,32 @@ async fn walk_volume(drive: String) -> Result<MftWalkStats> {
         .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
 }
 
-/// Bölüm 4.3 Adım 3 + 4.4 — tam MFT entry koleksiyonu + hiyerarşi + agregat.
-/// Sonuç `Arc<ScanTree>` Tauri state'inde tutulur (single source of truth).
+/// Bölüm 4.3 Adım 3 + 4.4 + 6.4 — tam MFT entry koleksiyonu + hiyerarşi +
+/// agregat. Bölüm 6.4 user rules önce yüklenir, build_tree user override
+/// için snapshot listesini kullanır.
 #[tauri::command]
-async fn scan_full(drive: String, state: tauri::State<'_, ScanTreeState>) -> Result<ScanSummary> {
+async fn scan_full(
+    drive: String,
+    scan_state: tauri::State<'_, ScanTreeState>,
+    db_state: tauri::State<'_, DbState>,
+) -> Result<ScanSummary> {
     let drv = drive.clone();
-    let (summary, tree) = tokio::task::spawn_blocking(move || scan_to_tree(&drv))
-        .await
-        .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
+    let user_rules = {
+        let conn = db_state
+            .conn
+            .lock()
+            .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+        list_active_snapshots(&conn)?
+    };
+    let (summary, tree) = tokio::task::spawn_blocking(move || {
+        scan_to_tree_with_user_rules(&drv, &user_rules)
+    })
+    .await
+    .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
 
     let arc_tree = Arc::new(tree);
     {
-        let mut slot = state
+        let mut slot = scan_state
             .current
             .write()
             .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
@@ -288,6 +306,56 @@ fn permanent_delete_cmd(
         .lock()
         .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
     permanent_delete(id, &confirm_phrase, &mut conn)
+}
+
+/// Bölüm 6.4 — kullanıcı tanımlı kuralları listele.
+#[tauri::command]
+fn list_user_rules_cmd(state: tauri::State<'_, DbState>) -> Result<Vec<UserRule>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    list_user_rules(&conn)
+}
+
+/// Bölüm 6.4 — yeni kural ekle. Pattern boş olamaz, skor 0-100.
+#[tauri::command]
+fn add_user_rule_cmd(
+    pattern: String,
+    pattern_type: UserPatternType,
+    score: u8,
+    explanation: String,
+    state: tauri::State<'_, DbState>,
+) -> Result<UserRule> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    add_user_rule(&conn, &pattern, pattern_type, score, &explanation)
+}
+
+/// Bölüm 6.4 — kuralı sil.
+#[tauri::command]
+fn delete_user_rule_cmd(id: i64, state: tauri::State<'_, DbState>) -> Result<()> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    delete_user_rule(&conn, id)
+}
+
+/// Bölüm 6.4 — kuralı aç/kapat (silmeden devre dışı bırak).
+#[tauri::command]
+fn toggle_user_rule_cmd(
+    id: i64,
+    enabled: bool,
+    state: tauri::State<'_, DbState>,
+) -> Result<()> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    toggle_user_rule(&conn, id, enabled)
 }
 
 /// Bölüm 14 — settings KV okuma (onboarding flag, kullanıcı tercihleri vs.).
@@ -551,6 +619,10 @@ pub fn run() {
             set_setting_cmd,
             list_expired_staging_cmd,
             cleanup_expired_staging_cmd,
+            list_user_rules_cmd,
+            add_user_rule_cmd,
+            delete_user_rule_cmd,
+            toggle_user_rule_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
