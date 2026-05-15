@@ -86,3 +86,6 @@ jobs:
 
       - name: vue-tsc + vite build
         run: pnpm run build
+
+      - name: vitest unit tests
+        run: pnpm test
