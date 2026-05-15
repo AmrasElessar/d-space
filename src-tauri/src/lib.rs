@@ -13,6 +13,7 @@ pub mod safe_delete;
 pub mod scan;
 pub mod snapshot;
 pub mod staging;
+pub mod v2;
 pub mod volume;
 
 use crate::db::{db_info, get_setting, open_db, set_setting, DbInfo, DbState};
