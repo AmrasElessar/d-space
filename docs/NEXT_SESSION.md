@@ -2,8 +2,8 @@
 
 # D-Space — Sonraki Oturum Yol Planı
 
-> **Son güncelleme:** 2026-05-15
-> **Şu anki sürüm:** `v0.1.0-alpha` (tag çekildi, GitHub Release yayında)
+> **Son güncelleme:** 2026-05-15 (Sprint 2H.3 VSS pool tamam, `f87979e`)
+> **Şu anki sürüm:** `v0.1.0-alpha` (tag çekildi, GitHub Release yayında) + Sprint 2H.3 main'de
 > **Hedef:** `v0.2.0-beta` → `v0.3.0` → `v1.0.0-stable`
 
 Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
@@ -15,16 +15,16 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 ## 🟢 ŞU AN: v0.1.0-alpha → v0.2.0-beta yolundayım
 
-**Yapılması gereken sırada 4 sprint:**
+**Sıradaki 3 sprint** (2H.3 tamam — origin'e push'lu):
 
-### Sprint 2H.3 — VSS pool (Bölüm 34 v0.2) ✅ TAMAMLANDI (2026-05-15)
+### Sprint 2H.3 — VSS pool (Bölüm 34 v0.2) ✅ TAMAMLANDI (2026-05-15, `f87979e`)
 - **Sonuç:** Plan A — `winapi 0.3.9` crate'i `IVssBackupComponents` + factory'yi sağladı, manuel vtable gerekmedi. Discovery Log #002 → çözüldü, #004 yeni revize (`VSS_CTX_FILE_SHARE_BACKUP` writer-less).
 - **Dosyalar:**
-  - `src-tauri/src/locked_file/vss.rs` (~430 satır) — düşük seviye COM köprüsü, `SnapshotProvider` trait (mock-friendly).
-  - `src-tauri/src/locked_file/vss_pool.rs` (~360 satır) — worker thread, per-volume dedupe, lease renewal + reaper.
+  - `src-tauri/src/locked_file/vss.rs` (563 satır) — düşük seviye COM köprüsü, `SnapshotProvider` trait (mock-friendly).
+  - `src-tauri/src/locked_file/vss_pool.rs` (511 satır) — worker thread, per-volume dedupe, lease renewal + reaper.
   - `src-tauri/src/duplicate/scan.rs` — `hash_file_with_retry` (`ERROR_SHARING_VIOLATION` → VSS reader).
 - **Feature gate:** `vss` (default OFF). Default build sıfır etki.
-- **Test:** 5 yeni unit test (hresult, BSTR roundtrip, snapshot_path, pool dedupe, lease drop, reaper eviction) — `cargo test --features vss --lib` ile çalışır.
+- **Test:** 9 yeni unit test (hresult mapping, BSTR roundtrip, snapshot_path, pool dedupe, lease drop, reaper eviction + scan integration) — `cargo test --features vss --lib` ile 83/83 geçer.
 
 ### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar)
 - **Mevcut:** 2-kolon workspace (sol SnapshotPanel, sağ Duplicate + Detail). 3. kolon henüz yok.
@@ -58,7 +58,7 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
   Private key → GitHub Secret. Public key → `tauri.conf.json`. Release workflow'a `includeUpdaterJson: true` ekle.
 - **Test:** v0.2.0-beta tag çek, eski v0.1.0-alpha kurulumdan auto-update çalıştığını doğrula.
 
-**Bu 4 sprint tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
+**Kalan 3 sprint (3.1c + 3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
 
 ---
 
@@ -132,7 +132,7 @@ git tag -l --sort=-creatordate | head -5
 ## 🔑 Önemli referanslar
 
 - **Master spec:** `D-Space-Mimari-v1.4.docx` (37 bölüm, DONDURULDU)
-- **Discovery Log:** `docs/DISCOVERY_LOG.md` (#001-003)
+- **Discovery Log:** `docs/DISCOVERY_LOG.md` (#001-004)
 - **Threat Model:** `docs/THREAT_MODEL.md`
 - **Release Checklist:** `docs/RELEASE_CHECKLIST.md`
 - **CHANGELOG:** `CHANGELOG.md`
@@ -141,7 +141,7 @@ git tag -l --sort=-creatordate | head -5
 
 ## 🎯 v1.0 başarı kriterleri
 
-- [ ] 200+ Rust test + 150+ frontend test (şu an 72 + 10 = 82)
+- [ ] 200+ Rust test + 150+ frontend test (şu an 74 default + 9 vss-gated + 10 frontend = 93)
 - [ ] Tüm 5 pillar v1 kapsamında (şu an alpha düzeyi)
 - [ ] EV cert imzalı MSI + NSIS
 - [ ] SmartScreen reputation kazanılmış
@@ -156,9 +156,9 @@ git tag -l --sort=-creatordate | head -5
 
 ## 🚦 Şu anki sprint kararı: **3.1c üç-kolon sidebar** (önerilen)
 
-2H.3 VSS pool tamamlandı (worktree merge'i bekleniyor). Sıradaki en uygun
-sprint **3.1c**: sol volume sidebar + 3-kolon layout. Düşük risk, görsel
-büyük etkili, kullanıcı geri bildirimi ile birebir alakalı.
+2H.3 VSS pool tamamlandı, `f87979e` commit'i `origin/main`'de. Sıradaki en
+uygun sprint **3.1c**: sol volume sidebar + 3-kolon layout. Düşük risk,
+görsel büyük etkili, kullanıcı geri bildirimi ile birebir alakalı.
 
 Alternatif sıra: **3.6 Tauri updater** (production hazırlığı) veya
 **3.5 Playwright e2e** (test güvenliği).
