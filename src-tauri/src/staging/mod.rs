@@ -14,11 +14,13 @@
 //     her ikisini koru / iptal.
 
 pub mod cross_volume;
+pub mod expiry;
 pub mod ops;
 pub mod permanent;
 pub mod wal;
 
 pub use cross_volume::{blake3_file, cross_volume_stage_file};
+pub use expiry::{cleanup_expired, list_expired, CleanupReport, ExpiredItem};
 pub use ops::{
     list_pending, stage, undo, undo_with_resolution, ConflictResolution, FileSnapshot, StagedItem,
     UndoOutcome, STAGING_TTL_SECS,

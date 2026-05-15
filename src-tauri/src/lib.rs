@@ -26,8 +26,9 @@ use crate::scan::{
 };
 use crate::snapshot::{DeltaResult, SnapshotMeta};
 use crate::staging::{
-    list_pending, permanent_delete, recover_wal, stage, undo, undo_with_resolution,
-    ConflictResolution, PermanentDeleteResult, StagedItem, UndoOutcome, WalRecoveryReport,
+    cleanup_expired, list_expired, list_pending, permanent_delete, recover_wal, stage, undo,
+    undo_with_resolution, CleanupReport, ConflictResolution, ExpiredItem, PermanentDeleteResult,
+    StagedItem, UndoOutcome, WalRecoveryReport,
 };
 use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
@@ -243,6 +244,33 @@ fn undo_resolve_staging(
         .lock()
         .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
     undo_with_resolution(id, resolution, &conn)
+}
+
+/// Bölüm 12.2.1 — süresi geçmiş staging item'larını listele (expires_at < now).
+#[tauri::command]
+fn list_expired_staging_cmd(state: tauri::State<'_, DbState>) -> Result<Vec<ExpiredItem>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    list_expired(&conn)
+}
+
+/// Bölüm 12.2.2-2.3 — onaylı toplu cleanup. AUTO_THRESHOLD aşımında dönen
+/// rapor `aborted_threshold = true` olur; UI kullanıcıdan açık onay ister.
+/// `force=true` "Hepsini sil" onayını işaretler.
+#[tauri::command]
+fn cleanup_expired_staging_cmd(
+    rate_per_sec: Option<u32>,
+    force: Option<bool>,
+    state: tauri::State<'_, DbState>,
+) -> Result<CleanupReport> {
+    let mut conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    let rate = rate_per_sec.unwrap_or(crate::staging::expiry::DEFAULT_CLEANUP_RATE_PER_SEC);
+    cleanup_expired(&mut conn, rate, force.unwrap_or(false))
 }
 
 /// Bölüm 12.4 — staging item'ı disk'ten kalıcı sil + forensic ledger.
@@ -520,6 +548,8 @@ pub fn run() {
             undo_resolve_staging,
             get_setting_cmd,
             set_setting_cmd,
+            list_expired_staging_cmd,
+            cleanup_expired_staging_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");

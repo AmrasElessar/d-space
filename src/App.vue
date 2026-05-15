@@ -245,6 +245,56 @@ interface PermanentDeleteResult {
   is_dir: boolean;
 }
 
+interface ExpiredItem {
+  id: number;
+  original_path: string;
+  size_bytes: number;
+  expired_at_unix: number;
+  is_dir: boolean;
+  age_secs: number;
+}
+
+interface CleanupReport {
+  deleted: number;
+  failed: number;
+  total_bytes: number;
+  elapsed_ms: number;
+  aborted_threshold: boolean;
+}
+
+const expiredList = ref<ExpiredItem[]>([]);
+const expiredCleanupBusy = ref<boolean>(false);
+const expiredCleanupReport = ref<CleanupReport | null>(null);
+const expiredCleanupError = ref<string | null>(null);
+const expiredConfirmOpen = ref<boolean>(false);
+
+async function refreshExpired() {
+  try {
+    expiredList.value = await invoke<ExpiredItem[]>("list_expired_staging_cmd");
+  } catch (err) {
+    expiredCleanupError.value = formatIpcError(err);
+  }
+}
+
+async function runExpiredCleanup(force: boolean) {
+  expiredCleanupBusy.value = true;
+  expiredCleanupError.value = null;
+  try {
+    const report = await invoke<CleanupReport>("cleanup_expired_staging_cmd", {
+      ratePerSec: 20,
+      force,
+    });
+    expiredCleanupReport.value = report;
+    expiredConfirmOpen.value = false;
+    await refreshExpired();
+    await refreshStaging();
+  } catch (err) {
+    expiredCleanupError.value = formatIpcError(err);
+  } finally {
+    expiredCleanupBusy.value = false;
+  }
+}
+
 interface FileSnapshot {
   path: string;
   size_bytes: number;
@@ -497,6 +547,7 @@ onMounted(async () => {
     dbError.value = formatIpcError(err);
   }
   await refreshStaging();
+  await refreshExpired();
   // Bölüm 19 — kayıtlı dil tercihi
   try {
     const pref = await invoke<string | null>("get_setting_cmd", {
@@ -1752,6 +1803,80 @@ async function confirmPermDelete(item: StagedItem) {
 
     <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
 
+    <section v-if="showAdvanced && expiredList.length > 0" class="card">
+      <h2>Süresi geçmiş öğeler (Bölüm 12.2.1)</h2>
+      <p class="muted">
+        Staging kuyruğunda {{ expiredList.length }} öğenin 24 saatlik geri alma
+        penceresi doldu. Bölüm 22.6 ilkesi gereği otomatik silinmedi — sen
+        onaylayana kadar yaşamaya devam eder. Tek seferde tümünü kalıcı silebilir
+        veya tek tek inceleyebilirsin.
+      </p>
+      <ul class="expired-list">
+        <li
+          v-for="item in expiredList.slice(0, 6)"
+          :key="item.id"
+          class="expired-row mono"
+        >
+          <span>📄 {{ item.original_path }}</span>
+          <span class="expired-meta">
+            {{ formatBytes(item.size_bytes) }} ·
+            {{ Math.floor(item.age_secs / 3600) }} sa süresi geçmiş
+          </span>
+        </li>
+        <li v-if="expiredList.length > 6" class="expired-row muted">
+          ve {{ expiredList.length - 6 }} öğe daha…
+        </li>
+      </ul>
+      <div class="probe-bar">
+        <button
+          type="button"
+          class="stage-btn perm-trigger"
+          :disabled="expiredCleanupBusy"
+          @click="expiredConfirmOpen = true"
+        >
+          🔥 Tümünü kalıcı sil ({{ expiredList.length }})
+        </button>
+        <span v-if="expiredCleanupReport" class="scan-quick mono">
+          son rapor: {{ expiredCleanupReport.deleted }} silindi,
+          {{ formatBytes(expiredCleanupReport.total_bytes) }},
+          {{ expiredCleanupReport.elapsed_ms }} ms
+        </span>
+      </div>
+      <p v-if="expiredCleanupError" class="err">{{ expiredCleanupError }}</p>
+    </section>
+
+    <div
+      v-if="expiredConfirmOpen"
+      class="modal-backdrop"
+      @click.self="expiredConfirmOpen = false"
+    >
+      <div class="conflict-dialog">
+        <h3 class="conflict-title">⚠ {{ expiredList.length }} öğe kalıcı silinecek</h3>
+        <p class="conflict-help">
+          Bölüm 12.2.3 — rate limit 20 dosya/sn, forensic ledger'a her biri kayıt
+          düşer. Geri alınamaz. Devam etmek için onayla.
+        </p>
+        <div class="conflict-actions">
+          <button
+            type="button"
+            class="conflict-btn conflict-overwrite"
+            :disabled="expiredCleanupBusy"
+            @click="runExpiredCleanup(true)"
+          >
+            {{ expiredCleanupBusy ? "Siliniyor…" : "Hepsini kalıcı sil" }}
+          </button>
+          <button
+            type="button"
+            class="conflict-btn conflict-cancel"
+            :disabled="expiredCleanupBusy"
+            @click="expiredConfirmOpen = false"
+          >
+            İptal
+          </button>
+        </div>
+      </div>
+    </div>
+
     <section v-if="showAdvanced" class="card">
       <h2>Veritabanı (Bölüm 14)</h2>
       <div v-if="dbInfo" class="grid">
@@ -1949,6 +2074,32 @@ async function confirmPermDelete(item: StagedItem) {
   color: #fcd34d;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.expired-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.expired-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.expired-meta {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .shortcuts-dialog {
