@@ -60,9 +60,7 @@ pub fn pre_flight_check(drive: &str) -> Result<VolumeInfo> {
         "drive type sorgulandı"
     );
 
-    if matches!(drive_kind, DriveKind::NoRootDir | DriveKind::Unknown)
-        && dtype_code != 6
-    {
+    if matches!(drive_kind, DriveKind::NoRootDir | DriveKind::Unknown) && dtype_code != 6 {
         return Ok(VolumeInfo {
             drive_letter,
             root_path,
@@ -110,12 +108,7 @@ pub fn pre_flight_check(drive: &str) -> Result<VolumeInfo> {
             // BitLocker locked volumes typically return access denied here.
             // v0.1'de tek tip işliyoruz; v0.2'de WMI ile BitLocker ayırt edilecek.
             debug!(?e, "GetVolumeInformationW hatası");
-            (
-                String::new(),
-                String::new(),
-                0,
-                VolumeStatus::AccessDenied,
-            )
+            (String::new(), String::new(), 0, VolumeStatus::AccessDenied)
         }
     };
 

@@ -117,14 +117,11 @@ pub fn find_duplicates(
         let Some(path) = node_full_path(tree, drive_letter, node.id) else {
             continue;
         };
-        size_buckets
-            .entry(size)
-            .or_default()
-            .push(Candidate {
-                id: node.id,
-                path,
-                size_bytes: size,
-            });
+        size_buckets.entry(size).or_default().push(Candidate {
+            id: node.id,
+            path,
+            size_bytes: size,
+        });
     }
 
     // En az 2 aday içeren bucket'ları al.
@@ -212,14 +209,21 @@ pub fn find_duplicates(
 
     // --- Aşama 4: sırala (en çok kazanım önce) -------------------------
     groups.sort_by(|a, b| {
-        let a_red = a.size_bytes.saturating_mul(a.paths.len().saturating_sub(1) as u64);
-        let b_red = b.size_bytes.saturating_mul(b.paths.len().saturating_sub(1) as u64);
+        let a_red = a
+            .size_bytes
+            .saturating_mul(a.paths.len().saturating_sub(1) as u64);
+        let b_red = b
+            .size_bytes
+            .saturating_mul(b.paths.len().saturating_sub(1) as u64);
         b_red.cmp(&a_red)
     });
 
     let redundant_bytes: u64 = groups
         .iter()
-        .map(|g| g.size_bytes.saturating_mul(g.paths.len().saturating_sub(1) as u64))
+        .map(|g| {
+            g.size_bytes
+                .saturating_mul(g.paths.len().saturating_sub(1) as u64)
+        })
         .sum();
 
     let stats = DuplicateStats {

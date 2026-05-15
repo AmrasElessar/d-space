@@ -58,14 +58,7 @@ pub fn find_lock_owners(path: &std::path::Path) -> Result<Vec<LockOwner>> {
             .chain(std::iter::once(0))
             .collect();
         let file_array: [PCWSTR; 1] = [PCWSTR(wide_path.as_ptr())];
-        let reg_rc = unsafe {
-            RmRegisterResources(
-                session_handle,
-                Some(&file_array),
-                None,
-                None,
-            )
-        };
+        let reg_rc = unsafe { RmRegisterResources(session_handle, Some(&file_array), None, None) };
         if reg_rc != ERROR_SUCCESS {
             return Err(Error::LockedFile(format!(
                 "RmRegisterResources başarısız: Win32 code {}",

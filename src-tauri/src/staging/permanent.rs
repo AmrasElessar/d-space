@@ -45,13 +45,8 @@ fn hash_first_4kb(path: &Path) -> Result<Option<[u8; 32]>> {
     if path.is_dir() {
         return Ok(None);
     }
-    let file = fs::File::open(path).map_err(|e| {
-        Error::Staging(format!(
-            "permanent hash aç '{}': {}",
-            path.display(),
-            e
-        ))
-    })?;
+    let file = fs::File::open(path)
+        .map_err(|e| Error::Staging(format!("permanent hash aç '{}': {}", path.display(), e)))?;
     let mut reader = BufReader::with_capacity(FIRST_KB, file);
     let mut buf = vec![0u8; FIRST_KB];
     let mut total = 0usize;
@@ -152,11 +147,8 @@ pub fn permanent_delete(
     )
     .map_err(|e| Error::Staging(format!("forensic insert: {}", e)))?;
 
-    tx.execute(
-        "DELETE FROM staging_items WHERE id = ?1",
-        params![id],
-    )
-    .map_err(|e| Error::Staging(format!("staging delete: {}", e)))?;
+    tx.execute("DELETE FROM staging_items WHERE id = ?1", params![id])
+        .map_err(|e| Error::Staging(format!("staging delete: {}", e)))?;
 
     tx.commit()
         .map_err(|e| Error::Staging(format!("tx commit: {}", e)))?;
@@ -209,9 +201,9 @@ mod tests {
 
     fn fresh_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
         conn
     }
@@ -232,7 +224,13 @@ mod tests {
                 (original_path, staged_path, size_bytes, staged_at, expires_at,
                  is_dir, reason, fallback_tier)
              VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, 'normal')",
-            params![original, staged.to_string_lossy(), size as i64, now, now + 86400],
+            params![
+                original,
+                staged.to_string_lossy(),
+                size as i64,
+                now,
+                now + 86400
+            ],
         )
         .unwrap();
         conn.last_insert_rowid()

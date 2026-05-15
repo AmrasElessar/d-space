@@ -28,8 +28,8 @@ pub struct StagedItem {
 }
 
 fn staging_base() -> Result<PathBuf> {
-    let base = dirs::data_local_dir()
-        .ok_or_else(|| Error::Staging("data_local_dir bulunamadı".into()))?;
+    let base =
+        dirs::data_local_dir().ok_or_else(|| Error::Staging("data_local_dir bulunamadı".into()))?;
     Ok(base.join("DSpace").join("staging"))
 }
 
@@ -65,8 +65,8 @@ pub fn stage(path: &str, conn: &Connection) -> Result<StagedItem> {
         return Err(Error::Staging(format!("Bulunamadı: {}", path)));
     }
 
-    let metadata = fs::metadata(&src)
-        .map_err(|e| Error::Staging(format!("metadata '{}': {}", path, e)))?;
+    let metadata =
+        fs::metadata(&src).map_err(|e| Error::Staging(format!("metadata '{}': {}", path, e)))?;
     let is_dir = metadata.is_dir();
     let size_bytes = if is_dir { 0 } else { metadata.len() };
 
@@ -82,11 +82,7 @@ pub fn stage(path: &str, conn: &Connection) -> Result<StagedItem> {
     // Collision avoidance — aynı saniye içinde aynı isim olabilir
     let mut suffix = 1u32;
     while dest.exists() {
-        dest = dest_dir.join(format!(
-            "{:03}_{}",
-            suffix,
-            file_name.to_string_lossy()
-        ));
+        dest = dest_dir.join(format!("{:03}_{}", suffix, file_name.to_string_lossy()));
         suffix += 1;
         if suffix > 999 {
             return Err(Error::Staging("Çakışma sayısı limitini aştı".into()));
@@ -300,8 +296,7 @@ fn lookup_staging(conn: &Connection, id: i64) -> Result<(String, String)> {
 
 fn ensure_parent(dest: &Path) -> Result<()> {
     if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| Error::Staging(format!("parent mkdir: {}", e)))?;
+        fs::create_dir_all(parent).map_err(|e| Error::Staging(format!("parent mkdir: {}", e)))?;
     }
     Ok(())
 }
@@ -335,8 +330,7 @@ pub fn undo(id: i64, conn: &Connection) -> Result<UndoOutcome> {
     // Hedef boş — direkt restore.
     if !dest.exists() {
         ensure_parent(dest)?;
-        fs::rename(src, dest)
-            .map_err(|e| Error::Staging(format!("undo rename: {}", e)))?;
+        fs::rename(src, dest).map_err(|e| Error::Staging(format!("undo rename: {}", e)))?;
         delete_staging_row(conn, id)?;
         info!(id, original = %original, "undo başarılı (Restored)");
         return Ok(UndoOutcome::Restored {
@@ -428,9 +422,8 @@ pub fn undo_with_resolution(
             } else {
                 let target_is_dir = dest.is_dir();
                 if target_is_dir {
-                    fs::remove_dir_all(dest).map_err(|e| {
-                        Error::Staging(format!("overwrite remove_dir_all: {}", e))
-                    })?;
+                    fs::remove_dir_all(dest)
+                        .map_err(|e| Error::Staging(format!("overwrite remove_dir_all: {}", e)))?;
                 } else {
                     fs::remove_file(dest)
                         .map_err(|e| Error::Staging(format!("overwrite remove_file: {}", e)))?;
@@ -482,9 +475,9 @@ mod tests {
         // Bu test gerçek DB ve dosya sistemi kullanır (in-memory connection +
         // temp dir). Same-volume rename yapar.
         let conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         let mut conn = conn;
         migrations.to_latest(&mut conn).unwrap();
 
@@ -524,9 +517,9 @@ mod tests {
     #[test]
     fn undo_detects_conflict_when_target_differs() {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
 
         let work = unique_tmp("conflict");
@@ -579,9 +572,9 @@ mod tests {
     #[test]
     fn undo_idempotent_when_target_same_hash() {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
 
         let work = unique_tmp("idempotent");
@@ -622,9 +615,9 @@ mod tests {
     #[test]
     fn undo_rename_resolution_keeps_both() {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
 
         let work = unique_tmp("rename");
@@ -661,7 +654,11 @@ mod tests {
             UndoOutcome::Restored { original_path } => {
                 let new_path = std::path::PathBuf::from(&original_path);
                 assert!(new_path.exists(), "yeni isimle dosya var olmalı");
-                assert!(new_path.file_name().unwrap().to_string_lossy().contains("(1)"));
+                assert!(new_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .contains("(1)"));
             }
             _ => panic!("Restored (rename) bekleniyordu"),
         }
@@ -674,9 +671,9 @@ mod tests {
     #[test]
     fn list_pending_orders_by_staged_at_desc() {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
 
         // Manuel insert (gerçek FS dokunmadan)
@@ -688,11 +685,15 @@ mod tests {
                     ('/b', '/s/b', 20, ?3, ?4, 0, 'normal'),
                     ('/c', '/s/c', 30, ?5, ?6, 0, 'normal')",
             params![
-                now - 100, now - 100 + 86400,
-                now - 50,  now - 50  + 86400,
-                now,        now + 86400,
+                now - 100,
+                now - 100 + 86400,
+                now - 50,
+                now - 50 + 86400,
+                now,
+                now + 86400,
             ],
-        ).unwrap();
+        )
+        .unwrap();
 
         let items = list_pending(&conn).unwrap();
         assert_eq!(items.len(), 3);

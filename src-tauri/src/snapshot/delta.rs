@@ -161,17 +161,17 @@ pub fn compute_delta(
         added.len() as u64 + removed.len() as u64 + grew.len() as u64 + shrunk.len() as u64;
 
     // Sırala + top-N kırp
-    added.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+    added.sort_by_key(|e| std::cmp::Reverse(e.size_bytes));
     added.truncate(TOP_N);
 
-    removed.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+    removed.sort_by_key(|e| std::cmp::Reverse(e.size_bytes));
     removed.truncate(TOP_N);
 
-    grew.sort_by(|a, b| b.delta_bytes.cmp(&a.delta_bytes));
+    grew.sort_by_key(|e| std::cmp::Reverse(e.delta_bytes));
     grew.truncate(TOP_N);
 
     // shrunk için delta_bytes ASC (en negatif = en çok küçülen önce)
-    shrunk.sort_by(|a, b| a.delta_bytes.cmp(&b.delta_bytes));
+    shrunk.sort_by_key(|a| a.delta_bytes);
     shrunk.truncate(TOP_N);
 
     info!(
@@ -203,9 +203,9 @@ mod tests {
 
     fn fresh_conn() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
-        let mig = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let mig = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         mig.to_latest(&mut conn).unwrap();
         conn
     }

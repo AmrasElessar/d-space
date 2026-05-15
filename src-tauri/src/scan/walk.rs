@@ -123,18 +123,15 @@ fn extract_name(file: &NtfsFile, handle: &mut File) -> Option<String> {
 /// İsim + parent_ref + data_size + is_dir + mtime tek seferde çıkarır.
 /// Win32 namespace tercih edilir. mtime için `$STANDARD_INFORMATION`
 /// (Windows yazıda update eder — canonical), başarısızsa `$FILE_NAME` fallback.
-fn extract_full(
-    file: &NtfsFile,
-    handle: &mut File,
-) -> Option<(String, u64, u64, bool, i64)> {
+fn extract_full(file: &NtfsFile, handle: &mut File) -> Option<(String, u64, u64, bool, i64)> {
     let si_mtime = file
         .info()
         .ok()
         .map(|si| nt_to_unix(si.modification_time().nt_timestamp()));
 
     if let Some(Ok(fname)) = file.name(handle, Some(NtfsFileNamespace::Win32), None) {
-        let mtime = si_mtime
-            .unwrap_or_else(|| nt_to_unix(fname.modification_time().nt_timestamp()));
+        let mtime =
+            si_mtime.unwrap_or_else(|| nt_to_unix(fname.modification_time().nt_timestamp()));
         return Some((
             fname.name().to_string_lossy(),
             fname.parent_directory_reference().file_record_number(),
@@ -145,8 +142,8 @@ fn extract_full(
     }
     if let Some(Ok(fname)) = file.name(handle, None, None) {
         if !matches!(fname.namespace(), NtfsFileNamespace::Dos) {
-            let mtime = si_mtime
-                .unwrap_or_else(|| nt_to_unix(fname.modification_time().nt_timestamp()));
+            let mtime =
+                si_mtime.unwrap_or_else(|| nt_to_unix(fname.modification_time().nt_timestamp()));
             return Some((
                 fname.name().to_string_lossy(),
                 fname.parent_directory_reference().file_record_number(),
@@ -173,8 +170,8 @@ pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
         ))
     })?;
 
-    let ntfs = Ntfs::new(&mut handle)
-        .map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
+    let ntfs =
+        Ntfs::new(&mut handle).map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
 
     let estimated = estimate_record_count(&ntfs, &mut handle)?;
     let cap = estimated.min(MAX_RECORD_HARD_LIMIT);
@@ -233,8 +230,8 @@ pub fn walk_mft(drive: &str) -> Result<MftWalkStats> {
         ))
     })?;
 
-    let ntfs = Ntfs::new(&mut handle)
-        .map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
+    let ntfs =
+        Ntfs::new(&mut handle).map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
 
     let estimated = estimate_record_count(&ntfs, &mut handle)?;
     let cap = estimated.min(MAX_RECORD_HARD_LIMIT);

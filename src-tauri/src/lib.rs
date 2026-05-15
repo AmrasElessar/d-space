@@ -17,21 +17,21 @@ pub mod volume;
 
 use crate::db::{db_info, open_db, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
+use crate::error::{Error, Result};
 use crate::locked_file::{probe_file, LockedFileProbe};
+use crate::scan::{
+    is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
+    window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState, SortKey,
+    WindowResult,
+};
+use crate::snapshot::{DeltaResult, SnapshotMeta};
 use crate::staging::{
     list_pending, permanent_delete, recover_wal, stage, undo, undo_with_resolution,
     ConflictResolution, PermanentDeleteResult, StagedItem, UndoOutcome, WalRecoveryReport,
 };
-use crate::error::{Error, Result};
-use crate::scan::{
-    is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree, top_consumers, walk_mft,
-    window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
-    SortKey, WindowResult,
-};
-use crate::snapshot::{DeltaResult, SnapshotMeta};
-use std::sync::Arc;
 use crate::volume::{pre_flight_check, VolumeInfo};
 use serde::Serialize;
+use std::sync::Arc;
 use tracing::{info, warn};
 
 #[derive(Debug, Serialize)]
@@ -106,10 +106,7 @@ async fn walk_volume(drive: String) -> Result<MftWalkStats> {
 /// Bölüm 4.3 Adım 3 + 4.4 — tam MFT entry koleksiyonu + hiyerarşi + agregat.
 /// Sonuç `Arc<ScanTree>` Tauri state'inde tutulur (single source of truth).
 #[tauri::command]
-async fn scan_full(
-    drive: String,
-    state: tauri::State<'_, ScanTreeState>,
-) -> Result<ScanSummary> {
+async fn scan_full(drive: String, state: tauri::State<'_, ScanTreeState>) -> Result<ScanSummary> {
     let drv = drive.clone();
     let (summary, tree) = tokio::task::spawn_blocking(move || scan_to_tree(&drv))
         .await
@@ -192,10 +189,7 @@ fn tree_path(state: tauri::State<'_, ScanTreeState>, id: u64) -> Result<Vec<Node
 /// Bölüm 12.2 — staging: dosyayı `%LOCALAPPDATA%\DSpace\staging\<ts>` altına
 /// atomik MOVE eder ve `staging_items` tablosuna kayıt düşer. 24h undo penceresi.
 #[tauri::command]
-fn stage_path(
-    path: String,
-    state: tauri::State<'_, DbState>,
-) -> Result<StagedItem> {
+fn stage_path(path: String, state: tauri::State<'_, DbState>) -> Result<StagedItem> {
     let conn = state
         .conn
         .lock()
@@ -228,10 +222,7 @@ fn run_wal_recovery(state: tauri::State<'_, DbState>) -> Result<WalRecoveryRepor
 /// Restored (hedef boştu), Idempotent (hedef = staged, 4 KB hash match),
 /// Conflict (UI dialog → undo_resolve_staging çağrısı).
 #[tauri::command]
-fn undo_staging(
-    id: i64,
-    state: tauri::State<'_, DbState>,
-) -> Result<UndoOutcome> {
+fn undo_staging(id: i64, state: tauri::State<'_, DbState>) -> Result<UndoOutcome> {
     let conn = state
         .conn
         .lock()
@@ -364,11 +355,7 @@ async fn find_duplicates_cmd(
 /// Bölüm 8.6 — iki snapshot ID arasındaki delta (added/removed/grew/shrunk
 /// top-10 + net byte change).
 #[tauri::command]
-fn snapshot_delta(
-    from: i64,
-    to: i64,
-    db_state: tauri::State<'_, DbState>,
-) -> Result<DeltaResult> {
+fn snapshot_delta(from: i64, to: i64, db_state: tauri::State<'_, DbState>) -> Result<DeltaResult> {
     let conn = db_state
         .conn
         .lock()
@@ -402,8 +389,7 @@ pub fn run() {
         Ok(conn) => DbState::new(conn),
         Err(e) => {
             warn!(?e, "DB açılamadı — geçici in-memory ile devam");
-            let conn = rusqlite::Connection::open_in_memory()
-                .expect("in-memory SQLite açılamadı");
+            let conn = rusqlite::Connection::open_in_memory().expect("in-memory SQLite açılamadı");
             DbState::new(conn)
         }
     };

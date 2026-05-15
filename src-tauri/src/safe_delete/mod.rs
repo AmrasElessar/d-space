@@ -34,10 +34,10 @@ pub struct RuleMatch {
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum ScoreTier {
-    Danger,    // 0-30  kırmızı
-    Caution,   // 31-60 sarı
-    Likely,    // 61-85 yeşil
-    Cache,     // 86-100 mavi
+    Danger,  // 0-30  kırmızı
+    Caution, // 31-60 sarı
+    Likely,  // 61-85 yeşil
+    Cache,   // 86-100 mavi
 }
 
 impl ScoreTier {

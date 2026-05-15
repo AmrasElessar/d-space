@@ -94,7 +94,11 @@ pub fn recover_wal(conn: &Connection) -> Result<WalRecoveryReport> {
 
     let rows: Vec<(i64, String, Option<String>)> = stmt
         .query_map([], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
         })
         .map_err(|e| Error::Staging(format!("recovery query: {}", e)))?
         .filter_map(|r| r.ok())
@@ -130,12 +134,12 @@ pub fn recover_wal(conn: &Connection) -> Result<WalRecoveryReport> {
     // COMMITTED ama dosyası eksik kayıtlar — forensic log (v0.2)
     // Şimdilik sadece say.
     let mut committed_stmt = conn
-        .prepare(
-            "SELECT id, tmp_path FROM staging_wal WHERE state = 'COMMITTED'",
-        )
+        .prepare("SELECT id, tmp_path FROM staging_wal WHERE state = 'COMMITTED'")
         .map_err(|e| Error::Staging(format!("committed prepare: {}", e)))?;
     let committed_rows: Vec<(i64, Option<String>)> = committed_stmt
-        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)))
+        .query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?))
+        })
         .map_err(|e| Error::Staging(format!("committed query: {}", e)))?
         .filter_map(|r| r.ok())
         .collect();
@@ -164,9 +168,9 @@ mod tests {
 
     fn fresh_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
         conn
     }

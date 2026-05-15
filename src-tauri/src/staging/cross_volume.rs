@@ -48,10 +48,9 @@ pub fn blake3_file(path: &Path) -> Result<[u8; 32]> {
 /// Streaming copy. Hedef üzerine yazar. İlerleme callback'i yoksa şimdilik
 /// (v0.2'de event stream UI'ya).
 fn copy_file_streaming(src: &Path, dst: &Path) -> Result<u64> {
-    let mut s = fs::File::open(src)
-        .map_err(|e| Error::Staging(format!("copy src aç: {}", e)))?;
-    let mut d = fs::File::create(dst)
-        .map_err(|e| Error::Staging(format!("copy dst oluştur: {}", e)))?;
+    let mut s = fs::File::open(src).map_err(|e| Error::Staging(format!("copy src aç: {}", e)))?;
+    let mut d =
+        fs::File::create(dst).map_err(|e| Error::Staging(format!("copy dst oluştur: {}", e)))?;
     std::io::copy(&mut s, &mut d).map_err(|e| Error::Staging(format!("copy: {}", e)))
 }
 
@@ -216,9 +215,9 @@ mod tests {
 
     fn fresh_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
-        let migrations = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let migrations = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         migrations.to_latest(&mut conn).unwrap();
         conn
     }
@@ -262,10 +261,8 @@ mod tests {
         let final_path = dst_dir.join("important.txt");
         let conn = fresh_db();
 
-        let staged = cross_volume_stage_file(
-            &src, &final_path, "TEST:", size, false, &conn,
-        )
-        .expect("two-phase commit başarılı");
+        let staged = cross_volume_stage_file(&src, &final_path, "TEST:", size, false, &conn)
+            .expect("two-phase commit başarılı");
 
         assert!(!src.exists(), "kaynak silinmiş olmalı");
         assert!(final_path.exists(), "hedef oluşmuş olmalı");

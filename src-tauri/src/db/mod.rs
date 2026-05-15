@@ -27,15 +27,13 @@ pub const DB_FILENAME: &str = "dspace.sqlite";
 /// `%LOCALAPPDATA%\DSpace\db\dspace.sqlite` — Windows.
 /// Diğer platformlarda `dirs::data_local_dir()` döndüğü değer.
 pub fn db_path() -> Result<PathBuf> {
-    let base = dirs::data_local_dir()
-        .ok_or_else(|| Error::Db("data_local_dir bulunamadı".into()))?;
+    let base =
+        dirs::data_local_dir().ok_or_else(|| Error::Db("data_local_dir bulunamadı".into()))?;
     Ok(base.join("DSpace").join("db").join(DB_FILENAME))
 }
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![
-        M::up(include_str!("migrations/0001_initial.sql")),
-    ])
+    Migrations::new(vec![M::up(include_str!("migrations/0001_initial.sql"))])
 }
 
 /// DB dosyasını açar, PRAGMA'ları ayarlar, migrations'ı çalıştırır.

@@ -57,8 +57,8 @@ pub fn probe_ntfs(drive: &str) -> Result<MftProbe> {
     })?;
 
     debug!("NTFS boot sector parse ediliyor");
-    let ntfs = Ntfs::new(&mut handle)
-        .map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
+    let ntfs =
+        Ntfs::new(&mut handle).map_err(|e| Error::Scan(format!("NTFS parse hatası: {:?}", e)))?;
 
     let probe = MftProbe {
         drive: drive.to_string(),

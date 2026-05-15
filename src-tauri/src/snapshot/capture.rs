@@ -236,9 +236,9 @@ mod tests {
 
     fn fresh_conn() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
-        let mig = rusqlite_migration::Migrations::new(vec![
-            rusqlite_migration::M::up(include_str!("../db/migrations/0001_initial.sql")),
-        ]);
+        let mig = rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(
+            include_str!("../db/migrations/0001_initial.sql"),
+        )]);
         mig.to_latest(&mut conn).unwrap();
         conn
     }

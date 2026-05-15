@@ -228,7 +228,7 @@ pub fn top_consumers(tree: &ScanTree, parent: NodeId, limit: usize) -> Vec<Node>
         .iter()
         .filter_map(|id| tree.nodes.get(id).cloned())
         .collect();
-    out.sort_by(|a, b| b.aggregate_size.cmp(&a.aggregate_size));
+    out.sort_by_key(|n| std::cmp::Reverse(n.aggregate_size));
     out.truncate(limit);
     out
 }
@@ -236,19 +236,15 @@ pub fn top_consumers(tree: &ScanTree, parent: NodeId, limit: usize) -> Vec<Node>
 /// Bölüm 9.6.3 — viewport-aware pencere sorgu anahtarı.
 #[derive(Debug, Clone, Copy, serde::Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SortKey {
     /// Agregat boyut, azalan.
+    #[default]
     SizeDesc,
     /// İsim, alfabetik artan.
     NameAsc,
     /// Direkt veri boyutu (sadece dosyalar için anlamlı), azalan.
     DataSizeDesc,
-}
-
-impl Default for SortKey {
-    fn default() -> Self {
-        Self::SizeDesc
-    }
 }
 
 /// Bölüm 9.6.3 — `tree_window` Tauri komutunun döndüğü pencere.
@@ -294,13 +290,13 @@ pub fn window_query(
 
     match sort {
         SortKey::SizeDesc => {
-            children.sort_by(|a, b| b.aggregate_size.cmp(&a.aggregate_size));
+            children.sort_by_key(|n| std::cmp::Reverse(n.aggregate_size));
         }
         SortKey::NameAsc => {
-            children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            children.sort_by_key(|a| a.name.to_lowercase());
         }
         SortKey::DataSizeDesc => {
-            children.sort_by(|a, b| b.data_size.cmp(&a.data_size));
+            children.sort_by_key(|n| std::cmp::Reverse(n.data_size));
         }
     }
 
@@ -551,7 +547,10 @@ mod tests {
         let tree = build_tree("vol".into(), raw);
         let path = node_path(&tree, 103);
         let names: Vec<&str> = path.iter().map(|n| n.name.as_str()).collect();
-        assert_eq!(names, vec!["<volume root>", "Projeler", "d-space", "src", "main.rs"]);
+        assert_eq!(
+            names,
+            vec!["<volume root>", "Projeler", "d-space", "src", "main.rs"]
+        );
     }
 
     #[test]

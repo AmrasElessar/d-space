@@ -122,10 +122,7 @@ pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
             } else {
                 metadata.as_ref().map(|m| m.len()).unwrap_or(0)
             };
-            let modified_unix = metadata
-                .as_ref()
-                .map(metadata_mtime_unix)
-                .unwrap_or(0);
+            let modified_unix = metadata.as_ref().map(metadata_mtime_unix).unwrap_or(0);
 
             entries.push(RawMftEntry {
                 record_no: id,
@@ -179,10 +176,7 @@ mod tests {
 
     #[test]
     fn scan_empty_temp_dir() {
-        let tmp = std::env::temp_dir().join(format!(
-            "dspace-test-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("dspace-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("a.txt"), b"hello").unwrap();

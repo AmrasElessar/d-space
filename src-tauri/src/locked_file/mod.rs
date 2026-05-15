@@ -99,11 +99,7 @@ pub fn probe_file(path: &Path) -> Result<LockedFileProbe> {
 
 /// Bölüm 34.1 — kategoriye göre aksiyon önerisi.
 /// v0.1'de heuristik: locked + system path → HardPass, aksi SnapshotRead.
-fn recommend_action(
-    state: &LockState,
-    _owners: &[LockOwner],
-    path: &Path,
-) -> LockedFileAction {
+fn recommend_action(state: &LockState, _owners: &[LockOwner], path: &Path) -> LockedFileAction {
     match state {
         LockState::Free => LockedFileAction::Proceed,
         LockState::NotFound | LockState::AccessDenied => LockedFileAction::HardPass,
@@ -142,7 +138,10 @@ mod tests {
         fs::write(&p, b"x").unwrap();
         let probe = probe_file(&p).unwrap();
         assert!(matches!(probe.state, LockState::Free));
-        assert!(matches!(probe.recommended_action, LockedFileAction::Proceed));
+        assert!(matches!(
+            probe.recommended_action,
+            LockedFileAction::Proceed
+        ));
         assert!(probe.owners.is_empty());
         assert!(!probe.vss_available);
     }

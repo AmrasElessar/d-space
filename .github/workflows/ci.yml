@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# D-Space CI — Bölüm 20.4 (CI Gates).
+#
+# Hedefler (v0.1, build matrix faz 1):
+#   * cargo fmt --check     → format sıfır
+#   * cargo clippy -D warn  → warning sıfır
+#   * cargo test --lib      → 51+ unit + integration test
+#   * vue-tsc + vite build  → TypeScript hata sıfır, bundle üret
+#
+# Bölüm 20.4'ten henüz eklenmedi (v0.2):
+#   * Bundle size regression ±%5
+#   * Performance benchmark ±%10 (criterion harness Bölüm 7.4 v0.2)
+#   * ESLint + Vitest unit (Vue tarafı)
+#
+# Runner: windows-latest (NTFS testleri Bölüm 5/12.2 için zorunlu;
+# locked_file/detect.rs Win32 API'leri sadece Windows hedefinde derlenir).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust ${{ matrix.toolchain }} · windows-latest
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable]
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain (${{ matrix.toolchain }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy, rustfmt
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy -D warnings
+        run: cargo clippy --lib --no-deps -- -D warnings
+
+      - name: cargo test --lib
+        run: cargo test --lib --no-fail-fast
+
+  frontend:
+    name: Frontend (vue-tsc + vite) · windows-latest
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Node 22 + pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: vue-tsc + vite build
+        run: pnpm run build
