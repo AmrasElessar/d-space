@@ -3,8 +3,11 @@
 import { ref, onMounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import Sunburst from "./components/Sunburst.vue";
+import Treemap from "./components/Treemap.vue";
 import SnapshotPanel from "./components/SnapshotPanel.vue";
 import DuplicatePanel from "./components/DuplicatePanel.vue";
+
+type ViewMode = "sunburst" | "treemap";
 
 interface AppInfo {
   name: string;
@@ -215,6 +218,8 @@ const stagePendingPath = ref<string | null>(null);
 const lockProbes = ref<Map<number, LockedFileProbe>>(new Map());
 const lockProbeBusyId = ref<number | null>(null);
 const lockProbeErrors = ref<Map<number, string>>(new Map());
+
+const viewMode = ref<ViewMode>("sunburst");
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -841,7 +846,42 @@ function closeLockProbe(id: number) {
     <section v-if="viewWindow" class="card">
       <h2>Drilldown (Bölüm 9.6 viewport query)</h2>
 
-      <Sunburst :data="viewWindow" @drill="drillInto" />
+      <div class="view-mode-bar">
+        <span class="view-mode-label">Görüntü modu</span>
+        <button
+          type="button"
+          class="view-chip"
+          :class="{ 'view-chip-active': viewMode === 'sunburst' }"
+          @click="viewMode = 'sunburst'"
+        >
+          Sunburst
+        </button>
+        <button
+          type="button"
+          class="view-chip"
+          :class="{ 'view-chip-active': viewMode === 'treemap' }"
+          @click="viewMode = 'treemap'"
+        >
+          Treemap
+        </button>
+        <span class="view-chip view-chip-disabled" title="v0.3 sprint">
+          Bubble
+        </span>
+        <span class="view-chip view-chip-disabled" title="v0.3 sprint">
+          Timeline
+        </span>
+      </div>
+
+      <Sunburst
+        v-if="viewMode === 'sunburst'"
+        :data="viewWindow"
+        @drill="drillInto"
+      />
+      <Treemap
+        v-else-if="viewMode === 'treemap'"
+        :data="viewWindow"
+        @drill="drillInto"
+      />
 
       <nav class="crumbs">
         <template v-for="(c, i) in breadcrumb" :key="c.id">
@@ -1103,9 +1143,10 @@ function closeLockProbe(id: number) {
         <li class="done">Cross-volume two-phase commit + WAL (Bölüm 12.3)</li>
         <li class="done">Time Machine / Snapshot — capture + delta (Bölüm 8)</li>
         <li class="done">Duplicate Detector v0.1 — Blake3 (Bölüm 7)</li>
-        <li class="active">Locked file probe v0.1 — share-violation + RestartManager (Bölüm 34.1/34.3/34.4)</li>
-        <li>VSS reference-counted snapshot pool — hash-time path (Bölüm 34.5.4-34.5.6)</li>
-        <li>Treemap + bubble + timeline görselleştirme (Bölüm 9.1 mod 2/3/4)</li>
+        <li class="done">Locked file probe v0.1 — share-violation + RestartManager (Bölüm 34.1/34.3/34.4)</li>
+        <li class="done">Treemap mod 2/4 — squarified (Bölüm 9.1)</li>
+        <li class="active">Bubble + timeline görselleştirme (Bölüm 9.1 mod 3/4)</li>
+        <li>VSS reference-counted snapshot pool — Discovery Log #002, ertelendi</li>
         <li>Permanent delete + conflict resolution dialog (Bölüm 12.4 + 12.2.4)</li>
         <li>MSI installer + GitHub Actions CI (Bölüm 21 + 20)</li>
         <li>v2 scoring rubric — TFLite tier'lı ML (Bölüm 6.5)</li>
@@ -1630,6 +1671,53 @@ function closeLockProbe(id: number) {
 .lock-err {
   margin: 0;
   font-size: 12px;
+}
+
+.view-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.view-mode-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+
+.view-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.view-chip:hover:not(.view-chip-disabled):not(.view-chip-active) {
+  border-color: #2a8a99;
+  background: #1f6f7c22;
+}
+
+.view-chip-active {
+  background: #1f6f7c;
+  border-color: #2a8a99;
+  color: #e7fafe;
+  font-weight: 600;
+  cursor: default;
+}
+
+.view-chip-disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  font-style: italic;
+  opacity: 0.6;
 }
 
 .staging-list {
