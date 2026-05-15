@@ -230,6 +230,67 @@ const lockProbes = ref<Map<number, LockedFileProbe>>(new Map());
 const lockProbeBusyId = ref<number | null>(null);
 const lockProbeErrors = ref<Map<number, string>>(new Map());
 
+type CloudPlaceholderState =
+  | "local_only"
+  | "online_only"
+  | "always_available"
+  | "other_reparse"
+  | "not_found"
+  | { other_error: number };
+
+interface CloudProbe {
+  path: string;
+  state: CloudPlaceholderState;
+  raw_attributes: number;
+  probe_elapsed_ms: number;
+}
+
+const cloudProbes = ref<Map<number, CloudProbe>>(new Map());
+const cloudProbeBusyId = ref<number | null>(null);
+
+async function probeCloud(node: TreeNode) {
+  if (node.is_dir) return;
+  const path = nodeFullPath(node);
+  cloudProbeBusyId.value = node.id;
+  try {
+    const probe = await invoke<CloudProbe>("probe_cloud_state_cmd", { path });
+    const next = new Map(cloudProbes.value);
+    next.set(node.id, probe);
+    cloudProbes.value = next;
+  } catch (err) {
+    console.warn("cloud probe error", err);
+  } finally {
+    cloudProbeBusyId.value = null;
+  }
+}
+
+function cloudStateLabel(s: CloudPlaceholderState): string {
+  if (typeof s === "string") {
+    switch (s) {
+      case "local_only":
+        return "Yerel (bulutta değil)";
+      case "online_only":
+        return "☁ Yalnızca buluta — açmak indirir";
+      case "always_available":
+        return "☁ Her zaman erişilebilir (bulut sürümü var)";
+      case "other_reparse":
+        return "Reparse point (symlink/junction/dedup)";
+      case "not_found":
+        return "Yol bulunamadı";
+    }
+  }
+  return `Win32 hata (${s.other_error})`;
+}
+
+function cloudStateClass(s: CloudPlaceholderState): string {
+  if (typeof s === "string") {
+    if (s === "online_only") return "lock-busy";
+    if (s === "always_available") return "lock-warn";
+    if (s === "local_only") return "lock-free";
+  }
+  return "lock-warn";
+}
+
 const viewMode = ref<ViewMode>("sunburst");
 
 const permDeletePendingId = ref<number | null>(null);
@@ -1586,6 +1647,16 @@ async function confirmPermDelete(item: StagedItem) {
             >
               {{ lockProbeBusyId === n.id ? "…" : "🔒" }}
             </button>
+            <button
+              v-if="!n.is_dir"
+              type="button"
+              class="stage-btn lock-probe-btn"
+              :disabled="cloudProbeBusyId === n.id"
+              title="Cloud placeholder sorgula (Bölüm 11.1 — recall flag'leri)"
+              @click="probeCloud(n)"
+            >
+              {{ cloudProbeBusyId === n.id ? "…" : "☁" }}
+            </button>
             <template v-if="stagePendingPath === nodeFullPath(n)">
               <button
                 type="button"
@@ -1614,6 +1685,33 @@ async function confirmPermDelete(item: StagedItem) {
               📥
             </button>
           </span>
+          <div
+            v-if="cloudProbes.get(n.id)"
+            class="lock-detail"
+            @click.stop
+          >
+            <div class="lock-detail-head">
+              <span
+                class="lock-pill"
+                :class="cloudStateClass(cloudProbes.get(n.id)!.state)"
+              >
+                {{ cloudStateLabel(cloudProbes.get(n.id)!.state) }}
+              </span>
+              <span class="lock-action mono">
+                attr: 0x{{ cloudProbes.get(n.id)!.raw_attributes.toString(16).padStart(8, "0").toUpperCase() }}
+              </span>
+              <span class="lock-elapsed mono">
+                {{ cloudProbes.get(n.id)!.probe_elapsed_ms }} ms
+              </span>
+              <button
+                type="button"
+                class="lock-close"
+                @click="cloudProbes.delete(n.id); cloudProbes = new Map(cloudProbes)"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
           <div
             v-if="lockProbes.get(n.id) || lockProbeErrors.get(n.id)"
             class="lock-detail"

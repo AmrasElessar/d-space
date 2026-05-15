@@ -25,9 +25,9 @@ use crate::safe_delete::{
     list_rules as list_user_rules, toggle_rule as toggle_user_rule, UserPatternType, UserRule,
 };
 use crate::scan::{
-    is_elevated, node_path, pick_strategy, probe_ntfs, scan_to_tree_with_user_rules, top_consumers,
-    walk_mft, window_query, MftProbe, MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState,
-    SortKey, WindowResult,
+    is_elevated, node_path, pick_strategy, probe_cloud_state, probe_ntfs,
+    scan_to_tree_with_user_rules, top_consumers, walk_mft, window_query, CloudProbe, MftProbe,
+    MftWalkStats, Node, ScanStrategy, ScanSummary, ScanTreeState, SortKey, WindowResult,
 };
 use crate::snapshot::{DeltaResult, SnapshotMeta};
 use crate::staging::{
@@ -418,6 +418,17 @@ fn list_snapshots(db_state: tauri::State<'_, DbState>) -> Result<Vec<SnapshotMet
     crate::snapshot::list_snapshots(&conn)
 }
 
+/// Bölüm 11.1 — tek dosya için cloud placeholder probe. GetFileAttributesW
+/// ile FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS / RECALL_ON_OPEN / REPARSE_POINT
+/// bayraklarını okur. spawn_blocking — Win32 senkron çağrı.
+#[tauri::command]
+async fn probe_cloud_state_cmd(path: String) -> Result<CloudProbe> {
+    let p = std::path::PathBuf::from(path);
+    tokio::task::spawn_blocking(move || probe_cloud_state(&p))
+        .await
+        .map_err(|e| Error::Scan(format!("join hatası: {}", e)))?
+}
+
 /// Bölüm 34 — tek dosya için locked state + lock owner probe.
 /// Yalnızca on-demand çağrılır (Bölüm 34.5.1 hot path izolasyonu). VSS yok,
 /// snapshot read v0.2 sprint'inde gelir. spawn_blocking → CreateFileW +
@@ -614,6 +625,7 @@ pub fn run() {
             add_user_rule_cmd,
             delete_user_rule_cmd,
             toggle_user_rule_cmd,
+            probe_cloud_state_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
