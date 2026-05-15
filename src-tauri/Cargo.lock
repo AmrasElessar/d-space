@@ -1225,6 +1225,7 @@ dependencies = [
  "tracing-subscriber",
  "tract",
  "tract-tflite",
+ "winapi",
  "windows",
 ]
 

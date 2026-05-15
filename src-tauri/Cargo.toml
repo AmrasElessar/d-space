@@ -38,6 +38,12 @@ default = []
 # Model dosyası `assets/models/safe_delete_v1.tflite` (v0.3 sprint'inde
 # eğitilip eklenecek). Build'i ağırlaştırmamak için default kapalı.
 ml-tflite = ["dep:tract", "dep:tract-tflite"]
+# Bölüm 34.5.4 — VSS (Volume Shadow Copy Service) snapshot pool. Hash-time
+# kilitli dosya kurtarma. `windows 0.61` IVssBackupComponents'i sunmuyor;
+# bu yüzden `winapi 0.3.9` (vsbackup.h binding'leri sağlar) opsiyonel
+# olarak eklenmiştir. Discovery Log #002 — Plan A. Default kapalı çünkü
+# COM + MTA + admin gerekleri build/test ortamını ağırlaştırır.
+vss = ["dep:winapi"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -52,6 +58,22 @@ windows = { version = "0.61", features = [
     "Win32_System_Threading",
     "Win32_UI_Shell",
 ] }
+# winapi 0.3.9 — yalnızca `vss` feature açıkken çekilir. `IVssBackupComponents`
+# vtable + `CreateVssBackupComponents` factory burada mevcut. Discovery Log #002.
+winapi = { version = "0.3.9", features = [
+    "vsbackup",
+    "vss",
+    "combaseapi",
+    "objbase",
+    "oleauto",
+    "winerror",
+    "handleapi",
+    "fileapi",
+    "minwindef",
+    "guiddef",
+    "winnt",
+    "ntdef",
+], optional = true }
 
 [profile.release]
 codegen-units = 1

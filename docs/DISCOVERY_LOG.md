@@ -38,7 +38,7 @@ kullanılacak. Bölüm 34.2 örneği yalnızca temsili — referans değildir.
 ---
 
 ## #002 — `windows` crate 0.61.3 `IVssBackupComponents`'i sağlamıyor
-Tarih: 2026-05-15 · İlgili bölüm: 34.2, 34.5.4 · Tip: ertelendi
+Tarih: 2026-05-15 · İlgili bölüm: 34.2, 34.5.4 · Tip: çözüldü (eski tip: ertelendi)
 
 **Bulgu:** `windows::Win32::Storage::Vss` modülünde tüm provider/admin/
 component/snapshot-mgmt interface'leri var ama **requester-side
@@ -73,6 +73,27 @@ revize turunda (`v1.5` veya `v2.0`) yeniden değerlendirilecek — alternatif
 **Referans:** commit `06368db` (Bölüm 34 v0.1); silinen draft
 `src-tauri/src/locked_file/vss.rs` (rollback edildi).
 
+### 2026-05-15 Güncellemesi — Plan A seçildi, sprint 2H.3 tamamlandı
+
+`winapi 0.3.9` crate'i `vsbackup` feature ile `IVssBackupComponentsVtbl`
++ `CreateVssBackupComponents` factory'sini sağlıyor — manuel COM vtable
+gerekmez. Referans: `docs.rs/winapi/0.3.9 → vsbackup::IVssBackupComponentsVtbl`.
+
+Cargo feature `vss` (default OFF) ile gate'lendi. Default build'e sıfır
+etki, opt-in. `Cargo.toml`'da yalnızca `cfg(windows)` target için optional
+dependency. Yeni dosyalar:
+
+* `src-tauri/src/locked_file/vss.rs` — düşük seviye COM köprüsü
+  (~430 satır): BSTR helpers, COM MTA init, async wait, RawSnapshot create
+  /destroy zinciri, `SnapshotProvider` trait (test enjeksiyonu için).
+* `src-tauri/src/locked_file/vss_pool.rs` — yüksek seviye pool
+  (~360 satır): tek worker thread, per-volume dedupe, reference counting
+  + lease renewal (Bölüm 34.5.6), reaper (idle 5 dk → destroy).
+* `src-tauri/src/duplicate/scan.rs` — `hash_file_with_retry` zinciri:
+  `ERROR_SHARING_VIOLATION` (`raw_os_error == 32`) → VSS pool reader.
+
+**Referans:** worktree `agent-a14d6e5c7ecb9b336`, sprint 2H.3.
+
 ---
 
 ## #003 — Aktif geliştirme sırası
@@ -88,3 +109,37 @@ sırasını birebir izlemiyor. Pillar'a göre düzenleniyor:
 
 **Karar:** Discovery Log her sprint sonunda dolacak. `DISCOVERY_LOG.md`
 master spec'e referans, master spec değişmeden bu dosya canlı kalır.
+
+---
+
+## #004 — VSS context: FILE_SHARE_BACKUP vs BACKUP
+Tarih: 2026-05-15 · İlgili bölüm: 34.5.4 · Tip: revize
+
+**Bulgu:** Master spec Bölüm 34.5.4 örnek kodu `SetContext` çağrısını ya
+hiç yapmıyor (implicit `VSS_CTX_BACKUP=0`) ya da `VSS_CTX_BACKUP` öneriyor.
+`VSS_CTX_BACKUP` ile:
+
+* Writer involvement gerekir — `GatherWriterMetadata` + `PrepareForBackup`
+  + `DoSnapshotSet` writer'ları döndürür, "VSS writer didn't respond"
+  hataları kullanıcı makinesinde yaygın.
+* Persistent + non-auto-release default — leaked snapshot riski geri gelir.
+* SQL Server / Exchange writer'lar quiesce sırasında IO duraklatır,
+  D-Space hash-time read için gereksiz performans cezası.
+
+D-Space sadece `FILE_READ_DATA` yapacak; writer freeze/thaw'a ihtiyaç
+yok (consistency point shorter > 1 saniye olsa bile bizim yeterli).
+
+**Karar:** `SetContext(VSS_CTX_FILE_SHARE_BACKUP = 0x10)` seçildi:
+
+* `VSS_VOLSNAP_ATTR_NO_WRITERS` — writer involvement YOK.
+* `VSS_VOLSNAP_ATTR_AUTORECOVER` — auto-recover OFF (read-only,
+  yalnızca file-system seviyesi consistency yeter).
+* Non-persistent + auto-release — `IVssBackupComponents::Release`'de
+  service-side snapshot otomatik kaybolur. Leaked snapshot riski sıfır.
+
+**Etki:** Hash-time path 1-3 sn yerine ~500-800 ms civarında snapshot
+açabilir. SQL Server / Outlook writer log gürültüsü yok.
+
+**Referans:**
+`src-tauri/src/locked_file/vss.rs` (`SetContext` çağrısı + zincir yorumu);
+Bölüm 34.5.4 yorumlarında yapışkan not.

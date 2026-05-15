@@ -17,21 +17,14 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 **Yapılması gereken sırada 4 sprint:**
 
-### Sprint 2H.3 — VSS pool (Bölüm 34 v0.2) ⚠️ EN RİSKLİ
-- **Risk:** Yüksek. Discovery Log #002'de ertelendi.
-- **Kapsam:** `albertony/vss` MIT C++ örneğini Rust'a port. `windows-rs 0.61`'de `IVssBackupComponents` yok → manuel COM vtable (~700 satır unsafe FFI + ~300 satır safe wrapper).
-- **Strateji:** Agent + worktree isolation. Talimat:
-  ```
-  Agent (Plan + general-purpose, worktree=true):
-    "albertony/vss" MIT C++ örneğini referans alarak src-tauri/src/
-    locked_file/vss.rs ve vss_pool.rs yaz. Cargo feature `vss` ile
-    gate'le (default off). IVssBackupComponents vtable + IUnknown
-    ref counting + BSTR lifecycle + MTA threading. Reference
-    counting + lease renewal (Bölüm 34.5.6). Bölüm 7 duplicate
-    detector hash retry zinciri.
-  ```
-- **Tamamlandığında:** Bölüm 7 duplicate detector Outlook .pst, SQL Server MDF, açık Office dosyalarını hash'leyebilir.
-- **Hata payı:** Worktree'de fail olursa main bozulmaz. Plan B: WMI `Win32_ShadowCopy` fallback (Discovery Log'da reddedildi ama acil durum).
+### Sprint 2H.3 — VSS pool (Bölüm 34 v0.2) ✅ TAMAMLANDI (2026-05-15)
+- **Sonuç:** Plan A — `winapi 0.3.9` crate'i `IVssBackupComponents` + factory'yi sağladı, manuel vtable gerekmedi. Discovery Log #002 → çözüldü, #004 yeni revize (`VSS_CTX_FILE_SHARE_BACKUP` writer-less).
+- **Dosyalar:**
+  - `src-tauri/src/locked_file/vss.rs` (~430 satır) — düşük seviye COM köprüsü, `SnapshotProvider` trait (mock-friendly).
+  - `src-tauri/src/locked_file/vss_pool.rs` (~360 satır) — worker thread, per-volume dedupe, lease renewal + reaper.
+  - `src-tauri/src/duplicate/scan.rs` — `hash_file_with_retry` (`ERROR_SHARING_VIOLATION` → VSS reader).
+- **Feature gate:** `vss` (default OFF). Default build sıfır etki.
+- **Test:** 5 yeni unit test (hresult, BSTR roundtrip, snapshot_path, pool dedupe, lease drop, reaper eviction) — `cargo test --features vss --lib` ile çalışır.
 
 ### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar)
 - **Mevcut:** 2-kolon workspace (sol SnapshotPanel, sağ Duplicate + Detail). 3. kolon henüz yok.
@@ -161,11 +154,11 @@ git tag -l --sort=-creatordate | head -5
 
 ---
 
-## 🚦 Şu anki sprint kararı: **2H.3 VSS pool** (önerilen)
+## 🚦 Şu anki sprint kararı: **3.1c üç-kolon sidebar** (önerilen)
 
-VSS pool en uzun süredir ertelenmiş ve `v0.2.0-beta` için son büyük bağımlılık. Agent + worktree ile bir sonraki oturumda denenecek. Başarısız olursa:
-- Plan B: Worktree atılır, ana dal etkilenmez
-- Plan C: WMI fallback (Bölüm 34 yarım kalır, alpha kalır)
-- Plan D: v1.0'a kadar erteleme, "kilitli dosya hash atlanır" notu CHANGELOG'a eklenir
+2H.3 VSS pool tamamlandı (worktree merge'i bekleniyor). Sıradaki en uygun
+sprint **3.1c**: sol volume sidebar + 3-kolon layout. Düşük risk, görsel
+büyük etkili, kullanıcı geri bildirimi ile birebir alakalı.
 
-Alternatif: Daha düşük risk için **3.1c üç-kolon sidebar** veya **3.6 updater** önce yapılır.
+Alternatif sıra: **3.6 Tauri updater** (production hazırlığı) veya
+**3.5 Playwright e2e** (test güvenliği).

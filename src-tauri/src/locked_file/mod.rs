@@ -20,6 +20,13 @@
 pub mod detect;
 pub mod owner;
 
+// Bölüm 34.5.4 — VSS pool yalnızca Windows + `vss` feature açıkken.
+// Default OFF (Discovery Log #002 → Plan A: winapi 0.3.9).
+#[cfg(all(windows, feature = "vss"))]
+pub mod vss;
+#[cfg(all(windows, feature = "vss"))]
+pub mod vss_pool;
+
 pub use detect::{probe_lock_state, LockState};
 pub use owner::{find_lock_owners, LockOwner};
 
@@ -76,6 +83,7 @@ pub fn probe_file(path: &Path) -> Result<LockedFileProbe> {
     };
 
     let recommended_action = recommend_action(&state, &owners, path);
+    let vss_available = vss_available_for(path);
 
     let elapsed_ms = start.elapsed().as_millis() as u64;
     info!(
@@ -83,6 +91,7 @@ pub fn probe_file(path: &Path) -> Result<LockedFileProbe> {
         ?state,
         owners = owners.len(),
         ?recommended_action,
+        vss_available,
         elapsed_ms,
         "locked file probe"
     );
@@ -92,9 +101,25 @@ pub fn probe_file(path: &Path) -> Result<LockedFileProbe> {
         state,
         owners,
         recommended_action,
-        vss_available: false, // v0.2 = true
+        vss_available,
         probe_elapsed_ms: elapsed_ms,
     })
+}
+
+/// Bölüm 34.5.4 — verilen yol için VSS snapshot kullanılabilir mi?
+/// v0.2 ilk hali: feature açıksa true (admin/NTFS deep-check sonraki sprint'te).
+/// Feature kapalıyken her zaman false.
+#[cfg(all(windows, feature = "vss"))]
+pub fn vss_available_for(_path: &Path) -> bool {
+    // İlk iterasyon: pool worker hazır olduğu sürece true varsayıyoruz.
+    // is_volume_supported probe'u (admin + NTFS) sonraki sprint'te eklenecek;
+    // şu an deep probe çağırmak her drill-down'da COM init maliyetini doğurur.
+    true
+}
+
+#[cfg(not(all(windows, feature = "vss")))]
+pub fn vss_available_for(_path: &Path) -> bool {
+    false
 }
 
 /// Bölüm 34.1 — kategoriye göre aksiyon önerisi.
@@ -119,8 +144,15 @@ fn recommend_action(state: &LockState, _owners: &[LockOwner], path: &Path) -> Lo
             if system_marker.iter().any(|m| lc.contains(m)) {
                 LockedFileAction::HardPass
             } else {
-                // v0.2: VSS pool varsa SnapshotRead, yoksa kullanıcı dialog.
-                LockedFileAction::UserDrillDown
+                // Bölüm 34.5.4 — VSS pool aktifse SnapshotRead, aksi UserDrillDown.
+                #[cfg(all(windows, feature = "vss"))]
+                {
+                    LockedFileAction::SnapshotRead
+                }
+                #[cfg(not(all(windows, feature = "vss")))]
+                {
+                    LockedFileAction::UserDrillDown
+                }
             }
         }
     }
@@ -143,6 +175,9 @@ mod tests {
             LockedFileAction::Proceed
         ));
         assert!(probe.owners.is_empty());
+        // `vss_available` feature'a göre değişir; sadece probe çalıştığını
+        // doğrula. Detay test'i `vss_pool::tests` altında.
+        #[cfg(not(feature = "vss"))]
         assert!(!probe.vss_available);
     }
 

@@ -62,23 +62,76 @@ struct Candidate {
     size_bytes: u64,
 }
 
-/// Streaming Blake3 — sabit RAM, dosya boyutundan bağımsız.
-fn hash_file(path: &Path) -> Result<[u8; 32]> {
-    let file = fs::File::open(path)
-        .map_err(|e| Error::Duplicate(format!("hash aç '{}': {}", path.display(), e)))?;
-    let mut reader = BufReader::with_capacity(HASH_BUFFER, file);
+/// Streaming Blake3 — `Read` üzerinden generic. Test ve VSS retry için
+/// reader-bazlı yardımcı.
+fn hash_reader<R: Read>(mut reader: R) -> std::io::Result<[u8; 32]> {
     let mut hasher = Hasher::new();
     let mut buf = vec![0u8; HASH_BUFFER];
     loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| Error::Duplicate(format!("hash read '{}': {}", path.display(), e)))?;
+        let n = reader.read(&mut buf)?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
     }
     Ok(*hasher.finalize().as_bytes())
+}
+
+/// Win32 `ERROR_SHARING_VIOLATION` kodu — `std::io::Error::raw_os_error()`
+/// üzerinden tespit. Path string'inde Türkçe veya farklı locale mesaj
+/// içermeyen güvenilir tek heuristik.
+const WIN32_ERROR_SHARING_VIOLATION: i32 = 32;
+
+fn is_share_violation(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(WIN32_ERROR_SHARING_VIOLATION)
+}
+
+/// Düz hash — `std::io::Error` korur (share violation tespiti için).
+fn hash_file_inner(path: &Path) -> std::io::Result<[u8; 32]> {
+    let file = fs::File::open(path)?;
+    let reader = BufReader::with_capacity(HASH_BUFFER, file);
+    hash_reader(reader)
+}
+
+/// Streaming Blake3 — sabit RAM, dosya boyutundan bağımsız.
+/// `Error::Duplicate` wrap eder; ham hata için `hash_file_inner` kullan.
+/// Üretimde `hash_file_with_retry` kullanılır; bu sade form yalnızca testlerde.
+#[cfg(test)]
+fn hash_file(path: &Path) -> Result<[u8; 32]> {
+    hash_file_inner(path)
+        .map_err(|e| Error::Duplicate(format!("hash aç/read '{}': {}", path.display(), e)))
+}
+
+/// Bölüm 7.3 + 34.5.4 — locked dosya hash retry zinciri.
+/// ShareViolation alırsa VSS pool üzerinden snapshot-bazlı reader ile dener.
+/// `vss` feature kapalıysa orijinal hatayı `Error::Duplicate` olarak döner
+/// (eski davranış korunur).
+pub(crate) fn hash_file_with_retry(path: &Path) -> Result<[u8; 32]> {
+    match hash_file_inner(path) {
+        Ok(h) => Ok(h),
+        Err(e) => {
+            #[cfg(all(windows, feature = "vss"))]
+            {
+                if is_share_violation(&e) {
+                    let reader = crate::locked_file::vss_pool::VssPool::global()
+                        .reader_for(path)
+                        .map_err(|err| {
+                            Error::Duplicate(format!("vss reader '{}': {}", path.display(), err))
+                        })?;
+                    return hash_reader(reader).map_err(|err| {
+                        Error::Duplicate(format!("vss hash retry '{}': {}", path.display(), err))
+                    });
+                }
+            }
+            // share violation değilse ya da vss kapalıysa orijinal hata.
+            let _ = is_share_violation; // dead_code uyarısı bastır
+            Err(Error::Duplicate(format!(
+                "hash aç/read '{}': {}",
+                path.display(),
+                e
+            )))
+        }
+    }
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {
@@ -180,7 +233,7 @@ pub fn find_duplicates(
         let mut hash_buckets: HashMap<[u8; 32], (u64, Vec<String>)> = HashMap::new();
         for cand in candidates {
             let p = Path::new(&cand.path);
-            match hash_file(p) {
+            match hash_file_with_retry(p) {
                 Ok(h) => {
                     hash_buckets
                         .entry(h)
@@ -278,6 +331,28 @@ mod tests {
         fs::File::create(&a).unwrap().write_all(b"hello").unwrap();
         fs::File::create(&b).unwrap().write_all(b"world").unwrap();
         assert_ne!(hash_file(&a).unwrap(), hash_file(&b).unwrap());
+    }
+
+    #[test]
+    fn hash_reader_matches_hash_file() {
+        let dir = tempdir();
+        let p = dir.path().join("c.bin");
+        let content = b"reader vs file path";
+        fs::File::create(&p).unwrap().write_all(content).unwrap();
+
+        let from_file = hash_file(&p).unwrap();
+        let from_reader = hash_reader(std::io::Cursor::new(content)).unwrap();
+        assert_eq!(from_file, from_reader);
+    }
+
+    #[test]
+    fn share_violation_detector() {
+        let sv = std::io::Error::from_raw_os_error(32);
+        assert!(is_share_violation(&sv));
+        let other = std::io::Error::from_raw_os_error(5);
+        assert!(!is_share_violation(&other));
+        let synthetic = std::io::Error::other("x");
+        assert!(!is_share_violation(&synthetic));
     }
 
     /// Belirli boyutlardaki dosyalar üretir, ScanTree benzeri yapı simüle eder,
