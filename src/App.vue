@@ -260,6 +260,17 @@ interface ScanProgressEvent {
 }
 const scanProgress = ref<ScanProgressEvent | null>(null);
 
+// Bölüm 15.1 — sağ panel için seçili düğüm. drillInto handler'ı set eder.
+const selectedNode = ref<TreeNode | null>(null);
+
+function scoreTierLabelFor(score: number | null): string {
+  if (score === null) return "—";
+  if (score <= 30) return "DOKUNMA";
+  if (score <= 60) return "İNCELE";
+  if (score <= 85) return "BÜYÜK İHTİMAL";
+  return "CACHE";
+}
+
 async function probeCloud(node: TreeNode) {
   if (node.is_dir) return;
   const path = nodeFullPath(node);
@@ -886,6 +897,7 @@ async function runFullScan() {
   breadcrumb.value = [];
   driveWarning.value = null;
   scanProgress.value = null;
+  selectedNode.value = null;
   // Bölüm 33.2 — taramadan önce volume preflight, file_system + drive_kind
   // bilgisinden uyarı çıkar.
   try {
@@ -912,6 +924,7 @@ async function runFullScan() {
 }
 
 function drillInto(node: TreeNode) {
+  selectedNode.value = node;
   if (node.is_dir) {
     loadWindow(node.id);
   }
@@ -2044,16 +2057,103 @@ async function confirmPermDelete(item: StagedItem) {
       </div>
     </div>
 
-    <Onboarding
-      :visible="onboardingVisible"
-      @finish="finishOnboarding"
-    />
+    <Onboarding :visible="onboardingVisible" @finish="finishOnboarding" />
 
     <ScanProgress :visible="scanning" :progress="scanProgress" />
 
-    <SnapshotPanel />
+    <!-- Bölüm 15.1 — iki-kolon workspace (v0.2 ara adım, üç-kolon v0.3) -->
+    <div class="workspace">
+      <aside class="col-left">
+        <SnapshotPanel />
+      </aside>
+      <aside class="col-right">
+        <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
 
-    <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
+        <section class="card detail-card">
+          <h2>Seçili Öğe</h2>
+          <template v-if="selectedNode">
+            <p class="detail-name">
+              {{ selectedNode.is_dir ? "📁" : "📄" }} {{ selectedNode.name }}
+            </p>
+            <p class="detail-path">{{ nodeFullPath(selectedNode) }}</p>
+            <div class="detail-row">
+              <span class="detail-key">Boyut</span>
+              <span class="detail-val mono">
+                {{ formatBytes(selectedNode.aggregate_size) }}
+              </span>
+            </div>
+            <div v-if="!selectedNode.is_dir" class="detail-row">
+              <span class="detail-key">Veri</span>
+              <span class="detail-val mono">
+                {{ formatBytes(selectedNode.data_size) }}
+              </span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-key">Değişim</span>
+              <span class="detail-val mono">
+                {{ formatTime(selectedNode.modified_unix) }}
+              </span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-key">Skor</span>
+              <span class="detail-val">
+                <span
+                  v-if="selectedNode.score !== null"
+                  class="score-pill"
+                  :class="scoreTierClass(selectedNode.score)"
+                >
+                  {{ selectedNode.score }} ·
+                  {{ scoreTierLabelFor(selectedNode.score) }}
+                </span>
+                <span v-else class="detail-key">—</span>
+              </span>
+            </div>
+            <div v-if="selectedNode.score_rule" class="detail-row">
+              <span class="detail-key">Kural</span>
+              <span class="detail-val mono">{{ selectedNode.score_rule }}</span>
+            </div>
+            <p
+              v-if="selectedNode.score_reason"
+              class="detail-path"
+              style="margin-top: 8px"
+            >
+              {{ selectedNode.score_reason }}
+            </p>
+            <div class="detail-actions">
+              <button
+                v-if="!selectedNode.is_dir"
+                type="button"
+                class="stage-btn lock-probe-btn"
+                :disabled="lockProbeBusyId === selectedNode.id"
+                @click="probeLock(selectedNode)"
+              >
+                🔒 Lock durumu sorgula
+              </button>
+              <button
+                v-if="!selectedNode.is_dir"
+                type="button"
+                class="stage-btn lock-probe-btn"
+                :disabled="cloudProbeBusyId === selectedNode.id"
+                @click="probeCloud(selectedNode)"
+              >
+                ☁ Cloud placeholder sorgula
+              </button>
+              <button
+                type="button"
+                class="stage-btn"
+                @click="confirmStage(selectedNode)"
+              >
+                📥 Staging'e gönder (24h undo)
+              </button>
+            </div>
+          </template>
+          <div v-else class="detail-empty">
+            <span class="detail-empty-emoji">👇</span>
+            Drilldown'da bir öğeye tıkla, detayı burada gör.
+          </div>
+        </section>
+      </aside>
+    </div>
 
     <UserRulesPanel v-if="showAdvanced" />
 
@@ -2251,12 +2351,110 @@ async function confirmPermDelete(item: StagedItem) {
 
 <style scoped>
 .shell {
-  max-width: 880px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 48px 32px 32px;
+  padding: 32px 28px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
+}
+
+/* Bölüm 15.1 — iki-kolon workspace (v0.2 ara adım). Üst grup (tara +
+   drilldown) full-width; bu workspace altında staging/snapshot vs detail.
+   Gerçek üç-kolon (volume sidebar dahil) v0.3 sprint'inde. */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.col-left,
+.col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Advanced diagnostic kartlar workspace altında full-width. */
+.diag-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Sağ panel - seçili öğe detayı placeholder */
+.detail-empty {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 40px 16px;
+  line-height: 1.6;
+}
+
+.detail-empty-emoji {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.detail-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  word-break: break-all;
+  margin: 0 0 4px;
+}
+
+.detail-path {
+  font-size: 10px;
+  color: var(--muted);
+  word-break: break-all;
+  margin: 0 0 12px;
+  font-family: ui-monospace, monospace;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-key {
+  color: var(--muted);
+}
+
+.detail-val {
+  color: var(--fg);
+  text-align: right;
+}
+
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.detail-actions .stage-btn {
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
 }
 
 .hero {
