@@ -4,6 +4,7 @@ import { ref, onMounted, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import Sunburst from "./components/Sunburst.vue";
 import SnapshotPanel from "./components/SnapshotPanel.vue";
+import DuplicatePanel from "./components/DuplicatePanel.vue";
 
 interface AppInfo {
   name: string;
@@ -878,6 +879,8 @@ function scoreTierLabel(score: number | null): string {
 
     <SnapshotPanel />
 
+    <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
+
     <section class="card">
       <h2>Veritabanı (Bölüm 14)</h2>
       <div v-if="dbInfo" class="grid">
@@ -922,12 +925,11 @@ function scoreTierLabel(score: number | null): string {
         <li class="done">Safe-to-delete kural motoru — 33 kural (Bölüm 6)</li>
         <li class="done">Staging + Undo same-volume (Bölüm 12.2)</li>
         <li class="done">Cross-volume two-phase commit + WAL (Bölüm 12.3)</li>
-        <li class="active">Time Machine / Snapshot (Bölüm 8)</li>
-        <li>Duplicate Detector (Bölüm 7, Blake3 hazır)</li>
-        <li>Staging + Undo + WAL (Bölüm 12)</li>
-        <li>Sunburst + treemap görselleştirme (Bölüm 9)</li>
-        <li>Safe-to-delete kural motoru (Bölüm 6)</li>
-        <li>Snapshot / Time Machine (Bölüm 8)</li>
+        <li class="done">Time Machine / Snapshot — capture + delta (Bölüm 8)</li>
+        <li class="active">Duplicate Detector v0.1 — Blake3 (Bölüm 7)</li>
+        <li>Treemap + bubble görselleştirme (Bölüm 9.2-9.3)</li>
+        <li>Locked file / VSS reference-counted snapshot pool (Bölüm 34)</li>
+        <li>v2 scoring rubric — TFLite tier'lı ML (Bölüm 6.5)</li>
       </ol>
     </section>
 

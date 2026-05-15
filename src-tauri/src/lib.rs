@@ -16,6 +16,7 @@ pub mod staging;
 pub mod volume;
 
 use crate::db::{db_info, open_db, DbInfo, DbState};
+use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::staging::{list_pending, recover_wal, stage, undo, StagedItem, WalRecoveryReport};
 use crate::error::{Error, Result};
 use crate::scan::{
@@ -278,6 +279,40 @@ fn list_snapshots(db_state: tauri::State<'_, DbState>) -> Result<Vec<SnapshotMet
     crate::snapshot::list_snapshots(&conn)
 }
 
+/// Bölüm 7 — taranmış ScanTree üzerinde duplicate aramayı çalıştırır. `scan_full`
+/// önce çağrılmış olmalı. Blake3 streaming hash; tek-thread v0.1. Sonuç:
+/// boyut-bucket → hash-bucket grupları, en çok kazandıran önce.
+#[tauri::command]
+async fn find_duplicates_cmd(
+    drive: String,
+    min_size_bytes: Option<u64>,
+    size_only: Option<bool>,
+    state: tauri::State<'_, ScanTreeState>,
+) -> Result<DuplicateScanResult> {
+    let tree_arc = {
+        let guard = state
+            .current
+            .read()
+            .map_err(|e| Error::Scan(format!("rwlock poisoned: {}", e)))?;
+        guard
+            .as_ref()
+            .ok_or_else(|| Error::Duplicate("scan_full henüz çağrılmadı".into()))?
+            .clone()
+    };
+    let letter = drive
+        .chars()
+        .find(|c| c.is_ascii_alphabetic())
+        .ok_or_else(|| Error::Duplicate(format!("Geçersiz sürücü: '{}'", drive)))?;
+    let opts = DuplicateOptions {
+        min_size_bytes: min_size_bytes.unwrap_or(crate::duplicate::DEFAULT_MIN_DUP_SIZE),
+        size_only: size_only.unwrap_or(false),
+    };
+    // Hash I/O blocking — spawn_blocking ile asenkron.
+    tokio::task::spawn_blocking(move || find_duplicates(&tree_arc, letter, opts))
+        .await
+        .map_err(|e| Error::Duplicate(format!("join hatası: {}", e)))?
+}
+
 /// Bölüm 8.6 — iki snapshot ID arasındaki delta (added/removed/grew/shrunk
 /// top-10 + net byte change).
 #[tauri::command]
@@ -361,6 +396,7 @@ pub fn run() {
             capture_snapshot,
             list_snapshots,
             snapshot_delta,
+            find_duplicates_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");

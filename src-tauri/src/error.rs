@@ -27,6 +27,9 @@ pub enum Error {
     #[error("Snapshot hatası: {0}")]
     Snapshot(String),
 
+    #[error("Duplicate detector hatası: {0}")]
+    Duplicate(String),
+
     #[error("Kilitli dosya: {0}")]
     LockedFile(String),
 
@@ -58,6 +61,7 @@ impl Error {
             Error::Scan(_) => "scan",
             Error::Staging(_) => "staging",
             Error::Snapshot(_) => "snapshot",
+            Error::Duplicate(_) => "duplicate",
             Error::LockedFile(_) => "locked_file",
             Error::NotImplemented(_) => "not_implemented",
         }

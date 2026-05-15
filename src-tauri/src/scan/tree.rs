@@ -312,6 +312,27 @@ pub fn window_query(
     }
 }
 
+/// Düğümün tam Windows yolunu üretir: `C:\Projeler\d-space\main.rs`.
+/// Sentetik root ("<volume root>") gizlenir; `drive_letter` büyük harfe
+/// çevrilir. Bölüm 7 duplicate detector hash girişi olarak kullanılır.
+pub fn node_full_path(tree: &ScanTree, drive_letter: char, id: NodeId) -> Option<String> {
+    let chain = node_path(tree, id);
+    if chain.is_empty() {
+        return None;
+    }
+    // İlk eleman sentetik root ise atla.
+    let parts: Vec<&str> = chain
+        .iter()
+        .filter(|n| n.id != tree.root_id)
+        .map(|n| n.name.as_str())
+        .collect();
+    let letter = drive_letter.to_ascii_uppercase();
+    if parts.is_empty() {
+        return Some(format!("{}:\\", letter));
+    }
+    Some(format!("{}:\\{}", letter, parts.join("\\")))
+}
+
 /// Bir düğümden root'a kadar olan zinciri kök → düğüm sırasıyla döner.
 /// Breadcrumb için (Bölüm 15.1.2 progressive disclosure).
 pub fn node_path(tree: &ScanTree, id: NodeId) -> Vec<Node> {
@@ -525,5 +546,23 @@ mod tests {
         let path = node_path(&tree, 103);
         let names: Vec<&str> = path.iter().map(|n| n.name.as_str()).collect();
         assert_eq!(names, vec!["<volume root>", "Projeler", "d-space", "src", "main.rs"]);
+    }
+
+    #[test]
+    fn full_path_strips_synthetic_root_and_uses_drive() {
+        let raw = vec![
+            r(100, 5, "Projeler", 0, true),
+            r(101, 100, "d-space", 0, true),
+            r(102, 101, "main.rs", 4096, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+        assert_eq!(
+            node_full_path(&tree, 'c', 102).unwrap(),
+            r"C:\Projeler\d-space\main.rs"
+        );
+        // root düğümünün kendisi → "C:\"
+        assert_eq!(node_full_path(&tree, 'C', tree.root_id).unwrap(), r"C:\");
+        // bilinmeyen id → None
+        assert!(node_full_path(&tree, 'D', 9999).is_none());
     }
 }
