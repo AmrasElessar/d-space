@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# D-Space Release — Master mimari Bölüm 21 (Build, İmzalama ve Dağıtım).
+#
+# Trigger: semantik versiyon tag push (örn. `git tag v0.1.0 && git push --tags`).
+# Çıktılar (Bölüm 21.2):
+#   * .msi (WiX)   — birincil installer
+#   * .exe (NSIS)  — alternatif installer
+# Tauri-action default olarak ikisini de üretir (bundle.targets = "all").
+#
+# Bölüm 21'den v0.2'ye ertelenenler:
+#   * Kod imzalama (EV/OV certificate) — Bölüm 18.2
+#   * ARM64 build matrisi — Bölüm 21.1 faz 2
+#   * Auto-updater feed (Tauri updater) — Bölüm 21.4
+#   * winget / Scoop publish — Bölüm 21.3
+#
+# İlk release alpha: imzasız → Windows SmartScreen "publisher unknown"
+# diyebilir. Kullanıcı uyarısı README'de.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: MSI + NSIS · windows-latest
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Node 22 + pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build + create release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "D-Space ${{ github.ref_name }}"
+          releaseBody: |
+            ## D-Space ${{ github.ref_name }}
+
+            Görmek, anlamak, geri kazanmak.
+
+            **Lisans:** GPL-3.0-or-later
+            **Spec:** D-Space-Mimari-v1.4.docx (Bölüm 28 Discovery Log canlı)
+            **Hedef:** Windows 10 1809+ / Windows 11
+
+            Bu sürüm alpha kanalında, imzasız bir build. Windows SmartScreen
+            "yayıncı bilinmiyor" uyarısı verebilir — kod imzalama Bölüm 18.2
+            v0.2 sprint'inde.
+
+            Geri bildirim: GitHub Issues.
+          releaseDraft: false
+          prerelease: true
+          includeUpdaterJson: false
