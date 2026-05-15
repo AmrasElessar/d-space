@@ -29,6 +29,15 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 rusqlite_migration = "1"
 dirs = "5"
 blake3 = "1"
+tract = { version = "0.22", optional = true, default-features = false }
+tract-tflite = { version = "0.22", optional = true, default-features = false }
+
+[features]
+default = []
+# Bölüm 6.5 — TFLite tier'lı ML scorer. tract pure-Rust, ~3-5 MB static.
+# Model dosyası `assets/models/safe_delete_v1.tflite` (v0.3 sprint'inde
+# eğitilip eklenecek). Build'i ağırlaştırmamak için default kapalı.
+ml-tflite = ["dep:tract", "dep:tract-tflite"]
 
 [dev-dependencies]
 tempfile = "3"

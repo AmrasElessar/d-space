@@ -160,7 +160,14 @@ pub fn add_rule(
         "INSERT INTO user_rules
             (pattern, pattern_type, score, explanation, enabled, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
-        params![p, pattern_type.as_str(), score as i64, explanation, now, now],
+        params![
+            p,
+            pattern_type.as_str(),
+            score as i64,
+            explanation,
+            now,
+            now
+        ],
     )
     .map_err(|e| Error::Db(format!("user_rules insert: {}", e)))?;
     let id = conn.last_insert_rowid();

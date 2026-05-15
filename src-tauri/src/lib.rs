@@ -126,11 +126,10 @@ async fn scan_full(
             .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
         list_active_snapshots(&conn)?
     };
-    let (summary, tree) = tokio::task::spawn_blocking(move || {
-        scan_to_tree_with_user_rules(&drv, &user_rules)
-    })
-    .await
-    .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
+    let (summary, tree) =
+        tokio::task::spawn_blocking(move || scan_to_tree_with_user_rules(&drv, &user_rules))
+            .await
+            .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
 
     let arc_tree = Arc::new(tree);
     {
@@ -346,11 +345,7 @@ fn delete_user_rule_cmd(id: i64, state: tauri::State<'_, DbState>) -> Result<()>
 
 /// Bölüm 6.4 — kuralı aç/kapat (silmeden devre dışı bırak).
 #[tauri::command]
-fn toggle_user_rule_cmd(
-    id: i64,
-    enabled: bool,
-    state: tauri::State<'_, DbState>,
-) -> Result<()> {
+fn toggle_user_rule_cmd(id: i64, enabled: bool, state: tauri::State<'_, DbState>) -> Result<()> {
     let conn = state
         .conn
         .lock()
@@ -370,11 +365,7 @@ fn get_setting_cmd(key: String, state: tauri::State<'_, DbState>) -> Result<Opti
 
 /// Bölüm 14 — settings KV upsert.
 #[tauri::command]
-fn set_setting_cmd(
-    key: String,
-    value: String,
-    state: tauri::State<'_, DbState>,
-) -> Result<()> {
+fn set_setting_cmd(key: String, value: String, state: tauri::State<'_, DbState>) -> Result<()> {
     let conn = state
         .conn
         .lock()

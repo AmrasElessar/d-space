@@ -107,23 +107,22 @@ pub fn build_tree_with_user_rules(
             Some(e.parent_record_no)
         };
 
-        let (score, score_rule, score_reason) = if let Some(ur) =
-            crate::safe_delete::match_user_rule(user_rules, &e.name, e.is_dir)
-        {
-            (
-                Some(ur.score),
-                Some("user".to_string()),
-                Some(ur.explanation.clone()),
-            )
-        } else if let Some(r) = crate::safe_delete::match_rule(&e.name, e.is_dir) {
-            (
-                Some(r.score),
-                Some(r.id.to_string()),
-                Some(r.explanation.to_string()),
-            )
-        } else {
-            (None, None, None)
-        };
+        let (score, score_rule, score_reason) =
+            if let Some(ur) = crate::safe_delete::match_user_rule(user_rules, &e.name, e.is_dir) {
+                (
+                    Some(ur.score),
+                    Some("user".to_string()),
+                    Some(ur.explanation.clone()),
+                )
+            } else if let Some(r) = crate::safe_delete::match_rule(&e.name, e.is_dir) {
+                (
+                    Some(r.score),
+                    Some(r.id.to_string()),
+                    Some(r.explanation.to_string()),
+                )
+            } else {
+                (None, None, None)
+            };
         nodes.insert(
             e.record_no,
             Node {

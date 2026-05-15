@@ -14,7 +14,10 @@
 //   * v2 stub trait (Bölüm 26.1).
 
 pub mod rules;
+pub mod scorer;
 pub mod user_rules;
+
+pub use scorer::RulesScorer;
 
 pub use rules::{match_rule, Rule, RULES};
 pub use user_rules::{

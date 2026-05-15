@@ -37,10 +37,15 @@ pub struct MlScoreRecord {
 
 /// Bölüm 6.5 — ML scorer trait.
 ///
-/// v1.x'te `unimplemented!()`. v2'de TFLite runtime + SQLite cache lookup.
-/// Caller: scan-time path'ten ASLA çağrılmaz; UI drilldown veya idle
-/// background job (Bölüm 6.5.3 throttle).
-pub trait MlSafeDeleteScorer: Send + Sync {
+/// v1.x'te concrete impl `safe_delete::RulesScorer`; tract path opsiyonel
+/// `ml-tflite` feature ile. Caller: scan-time path'ten ASLA çağrılmaz; UI
+/// drilldown veya idle background job (Bölüm 6.5.3 throttle).
+///
+/// `Send + Sync` constraint v0.2'de eklenecek — şu an `RulesScorer` SQLite
+/// `&Connection` ref tutar (Connection !Sync), Faz 1 tek-thread caller.
+/// Background indexing implementation eklendiğinde `Arc<Mutex<Connection>>`
+/// pattern'i ile thread-safe yapılır.
+pub trait MlSafeDeleteScorer {
     /// Tek dosya skoru. Cache hit ise hızlı, miss ise model inference.
     fn score_one(&self, path: &str, mtime_unix: i64) -> Result<MlScoreRecord>;
 

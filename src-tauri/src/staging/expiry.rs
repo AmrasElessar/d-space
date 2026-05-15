@@ -253,11 +253,9 @@ mod tests {
         assert_eq!(remaining, 0);
         // forensic ledger 2 kayıt
         let forensic: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM permanent_deletes_forensic",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM permanent_deletes_forensic", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(forensic, 2);
 
