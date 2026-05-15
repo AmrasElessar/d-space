@@ -21,11 +21,13 @@ pub struct Rule {
     pub explanation: &'static str,
 }
 
-/// Bölüm 6.2 — built-in rule seti. Faz 1 v0.2: 53 kural (spec 50+ hedef).
+/// Bölüm 6.2 — built-in rule seti. Faz 2 v0.3: 63 kural.
 /// Eşit isimli kural eşleşirse ilk eşleşen kullanılır (sıra önemli).
 /// **System safety**: pagefile/swapfile/boot dosyaları LOW score (DOKUNMA);
 /// `match_rule` orijinal isim eşleşmesinden döner — Bölüm 34.5.1 sistem
 /// dosyalarına temas etmemenin tamamlayıcı katmanı.
+/// **Cloud + VM safety**: OneDrive/Dropbox/iCloud + WSL/Docker/Hyper-V
+/// klasörleri kullanıcı verisi olarak işaretlenir (Bölüm 10 + 11 v0.1).
 pub const RULES: &[Rule] = &[
     // ----- Geliştirici cache / artifact -----
     Rule {
@@ -394,6 +396,80 @@ pub const RULES: &[Rule] = &[
         score: 25,
         explanation: "Uygulama verisi — ayar/profil içerir, dikkat.",
     },
+    // ----- Cloud sync klasörleri (Bölüm 11) — LOW score, kullanıcı verisi -----
+    Rule {
+        id: "onedrive",
+        pattern: Pattern::Name("OneDrive"),
+        score: 10,
+        explanation: "OneDrive senkron klasörü — silmek bulut sürümünü de etkileyebilir.",
+    },
+    Rule {
+        id: "onedrive-business",
+        pattern: Pattern::Name("OneDrive - Personal"),
+        score: 10,
+        explanation: "OneDrive (kişisel) — bulut sürümünü etkiler.",
+    },
+    Rule {
+        id: "dropbox",
+        pattern: Pattern::Name("Dropbox"),
+        score: 10,
+        explanation: "Dropbox senkron klasörü — silmek buluttan da kaldırabilir.",
+    },
+    Rule {
+        id: "google-drive",
+        pattern: Pattern::Name("Google Drive"),
+        score: 10,
+        explanation: "Google Drive senkron klasörü — bulut sürümünü etkiler.",
+    },
+    Rule {
+        id: "icloud-drive",
+        pattern: Pattern::Name("iCloudDrive"),
+        score: 10,
+        explanation: "iCloud Drive senkron klasörü — bulut sürümünü etkiler.",
+    },
+    // ----- VM / WSL / container imaj dosyaları (Bölüm 10) — LOW score -----
+    Rule {
+        id: "wsl-root",
+        pattern: Pattern::Name(".wslconfig"),
+        score: 8,
+        explanation: "WSL yapılandırma dosyası — silmek tüm WSL dağıtımlarını etkiler.",
+    },
+    Rule {
+        id: "ext-vhdx",
+        pattern: Pattern::Extension(".vhdx"),
+        score: 5,
+        explanation: "Sanal disk (Hyper-V/WSL/Docker) — silmek dağıtımı yok eder.",
+    },
+    Rule {
+        id: "ext-vhd",
+        pattern: Pattern::Extension(".vhd"),
+        score: 5,
+        explanation: "Sanal disk (eski VHD format) — silmek dağıtımı yok eder.",
+    },
+    Rule {
+        id: "ext-vdi",
+        pattern: Pattern::Extension(".vdi"),
+        score: 5,
+        explanation: "VirtualBox sanal disk — silmek VM'i yok eder.",
+    },
+    Rule {
+        id: "ext-vmdk",
+        pattern: Pattern::Extension(".vmdk"),
+        score: 5,
+        explanation: "VMware sanal disk — silmek VM'i yok eder.",
+    },
+    Rule {
+        id: "ext-qcow2",
+        pattern: Pattern::Extension(".qcow2"),
+        score: 5,
+        explanation: "QEMU/KVM sanal disk — silmek VM'i yok eder.",
+    },
+    Rule {
+        id: "ext-ova",
+        pattern: Pattern::Extension(".ova"),
+        score: 40,
+        explanation: "OVA bundle — VM şablonu, çoğunlukla import sonrası silinebilir.",
+    },
 ];
 
 /// Tek bir kuralı isim+is_dir üzerinde uygular. Match → Some, yok → None.
@@ -459,6 +535,34 @@ mod tests {
             "Spec 50+ kural istiyor, mevcut {}",
             RULES.len()
         );
+    }
+
+    #[test]
+    fn cloud_sync_folders_protected() {
+        // Bölüm 11 — cloud sync klasörleri kullanıcı verisi, LOW score.
+        for name in ["OneDrive", "Dropbox", "Google Drive", "iCloudDrive"] {
+            let r = match_rule(name, true).unwrap_or_else(|| panic!("{} eşleşmeli", name));
+            assert!(
+                r.score <= 30,
+                "{} cloud klasörü düşük skor olmalı (got {})",
+                name,
+                r.score
+            );
+        }
+    }
+
+    #[test]
+    fn vm_disk_extensions_protected() {
+        // Bölüm 10 — sanal disk uzantıları LOW score (WSL/Docker/Hyper-V/VirtualBox/VMware).
+        for ext in ["disk.vhdx", "vm.vdi", "container.vmdk", "image.qcow2"] {
+            let r = match_rule(ext, false).unwrap_or_else(|| panic!("{} eşleşmeli", ext));
+            assert!(
+                r.score <= 30,
+                "{} sanal disk düşük skor olmalı (got {})",
+                ext,
+                r.score
+            );
+        }
     }
 
     #[test]

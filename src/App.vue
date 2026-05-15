@@ -613,12 +613,49 @@ async function loadWindow(parentId: number) {
   }
 }
 
+// Bölüm 5.5 + 33.3 + 33.4 — uyarı bayrakları (volume bağlamına göre).
+const driveWarning = ref<string | null>(null);
+
+function computeDriveWarning(info: VolumeInfo | null): string | null {
+  if (!info) return null;
+  const fs = (info.file_system || "").toUpperCase();
+  if (fs === "REFS") {
+    return "ReFS sürücü: MFT direkt okuma desteklenmiyor — Standart Mod kullanılır (Bölüm 5.5).";
+  }
+  if (fs && !["NTFS", "REFS", "FAT32", "EXFAT"].includes(fs)) {
+    return `Bilinmeyen dosya sistemi (${fs}) — Standart Mod denenecek.`;
+  }
+  if (info.drive_kind === "Remote") {
+    return "Network sürücü: bandwidth ve yetki maliyeti yüksek (Bölüm 33.3). Tarama yavaş olabilir.";
+  }
+  if (info.drive_kind === "Removable") {
+    return "Removable medya: tarama bitince güvenli çıkarmayı unutma (Bölüm 33.4).";
+  }
+  if (info.drive_kind === "CdRom") {
+    return "Optik medya: salt-okunur, staging/silme yapılamaz.";
+  }
+  return null;
+}
+
 async function runFullScan() {
   scanning.value = true;
   scanError.value = null;
   scanSummary.value = null;
   viewWindow.value = null;
   breadcrumb.value = [];
+  driveWarning.value = null;
+  // Bölüm 33.2 — taramadan önce volume preflight, file_system + drive_kind
+  // bilgisinden uyarı çıkar.
+  try {
+    const info = await invoke<VolumeInfo>("pre_flight_volume", {
+      drive: drive.value,
+    });
+    volumeInfo.value = info;
+    driveWarning.value = computeDriveWarning(info);
+  } catch (err) {
+    // Preflight başarısızsa scan yine de denenir — örn. admin gerektirebilir.
+    console.warn("preflight error", err);
+  }
   try {
     scanSummary.value = await invoke<ScanSummary>("scan_full", {
       drive: drive.value,
@@ -1188,6 +1225,9 @@ async function confirmPermDelete(item: StagedItem) {
           {{ strategyLabel(scanSummary.strategy) }} ·
           {{ scanSummary.collect_elapsed_ms + scanSummary.build_elapsed_ms }} ms
         </span>
+      </div>
+      <div v-if="driveWarning" class="drive-warning">
+        ⚠ {{ driveWarning }}
       </div>
       <div v-if="scanSummary && showAdvanced" class="grid">
         <div class="row">
@@ -1898,6 +1938,17 @@ async function confirmPermDelete(item: StagedItem) {
   color: var(--muted);
   font-size: 11px;
   margin-left: 8px;
+}
+
+.drive-warning {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #78350f22;
+  border: 1px solid #78350f80;
+  border-radius: 8px;
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .shortcuts-dialog {
