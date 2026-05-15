@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import Sunburst from "./components/Sunburst.vue";
 import Treemap from "./components/Treemap.vue";
@@ -278,6 +278,116 @@ const showAdvanced = ref<boolean>(false);
 function toggleAdvanced() {
   showAdvanced.value = !showAdvanced.value;
 }
+
+// Bölüm 15.2 — Klavye-First kısayollar.
+const showShortcuts = ref<boolean>(false);
+const searchOpen = ref<boolean>(false);
+
+function isTypingTarget(t: EventTarget | null): boolean {
+  if (!t) return false;
+  const el = t as HTMLElement;
+  const tag = el.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    el.isContentEditable
+  );
+}
+
+function navigateUp() {
+  if (breadcrumb.value.length >= 2) {
+    const parent = breadcrumb.value[breadcrumb.value.length - 2];
+    loadWindow(parent.id);
+  }
+}
+
+async function lastUndo() {
+  // En son staging item'ını undo et (staged_at DESC, en üst).
+  if (stagingList.value.length === 0) return;
+  const top = stagingList.value[0];
+  await runUndo(top.id);
+}
+
+function focusFirstFileForDelete(): TreeNode | null {
+  if (!viewWindow.value) return null;
+  return viewWindow.value.nodes.find((n) => !n.is_dir) ?? null;
+}
+
+function handleShortcut(e: KeyboardEvent) {
+  if (conflictDialog.value || permDeletePendingId.value !== null) {
+    // Dialog/inline confirm açıkken kısayolları yutma
+    if (e.key === "Escape") {
+      if (conflictDialog.value) {
+        resolveConflict("cancel");
+        e.preventDefault();
+      } else {
+        cancelPermDelete();
+        e.preventDefault();
+      }
+    }
+    return;
+  }
+  if (isTypingTarget(e.target)) return;
+
+  // Ctrl+R — Yeniden tara
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") {
+    e.preventDefault();
+    if (!scanning.value) runFullScan();
+    return;
+  }
+  // Ctrl+1/2/3/4 — Görüntü modu
+  if ((e.ctrlKey || e.metaKey) && ["1", "2", "3", "4"].includes(e.key)) {
+    e.preventDefault();
+    const modes: ViewMode[] = ["sunburst", "treemap", "bubble", "timeline"];
+    const idx = parseInt(e.key, 10) - 1;
+    if (viewWindow.value && modes[idx]) {
+      viewMode.value = modes[idx];
+    }
+    return;
+  }
+  // Ctrl+Z — Son undo
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    lastUndo();
+    return;
+  }
+  // Ctrl+F — Arama (placeholder toggle, gerçek arama v0.2)
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    searchOpen.value = !searchOpen.value;
+    return;
+  }
+  // Ctrl+? — Kısayol yardımı
+  if ((e.ctrlKey || e.metaKey) && e.key === "?") {
+    e.preventDefault();
+    showShortcuts.value = !showShortcuts.value;
+    return;
+  }
+  // Backspace — bir seviye yukarı (drilldown breadcrumb)
+  if (e.key === "Backspace") {
+    e.preventDefault();
+    navigateUp();
+    return;
+  }
+  // Delete — viewport'taki ilk dosyayı staging'e gönder
+  if (e.key === "Delete") {
+    const target = focusFirstFileForDelete();
+    if (target) {
+      e.preventDefault();
+      confirmStage(target);
+    }
+    return;
+  }
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", handleShortcut);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleShortcut);
+});
 
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
@@ -705,6 +815,15 @@ async function confirmPermDelete(item: StagedItem) {
           @click="toggleAdvanced"
         >
           {{ showAdvanced ? "🔬 Tanı: AÇIK" : "🔬 Tanı modu" }}
+        </button>
+        <button
+          type="button"
+          class="adv-toggle"
+          :class="{ 'adv-toggle-active': showShortcuts }"
+          title="Klavye kısayolları (Ctrl+?)"
+          @click="showShortcuts = !showShortcuts"
+        >
+          ⌨ Kısayollar
         </button>
       </div>
       <p class="tagline">Görmek, anlamak, geri kazanmak.</p>
@@ -1360,6 +1479,62 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <div
+      v-if="showShortcuts"
+      class="modal-backdrop"
+      @click.self="showShortcuts = false"
+    >
+      <div class="shortcuts-dialog">
+        <h3 class="conflict-title">⌨ Klavye Kısayolları (Bölüm 15.2)</h3>
+        <table class="shortcut-table">
+          <tbody>
+            <tr>
+              <td><kbd>Ctrl</kbd>+<kbd>R</kbd></td>
+              <td>Yeniden tara</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd></td>
+              <td>Görüntü modu — Sunburst · Treemap · Bubble · Timeline</td>
+            </tr>
+            <tr>
+              <td><kbd>Backspace</kbd></td>
+              <td>Bir seviye yukarı (drilldown breadcrumb)</td>
+            </tr>
+            <tr>
+              <td><kbd>Delete</kbd></td>
+              <td>Viewport'taki ilk dosyayı staging'e gönder</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td>
+              <td>Son staging undo</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd>+<kbd>F</kbd></td>
+              <td>Arama (placeholder, v0.2)</td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td>Açık dialog'u kapat</td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd>+<kbd>?</kbd></td>
+              <td>Bu yardımı aç/kapat</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="shortcut-hint">
+          Input/textarea fokustayken kısayollar devre dışıdır — normal yazım engellenmez.
+        </p>
+        <button
+          type="button"
+          class="conflict-btn conflict-cancel"
+          @click="showShortcuts = false"
+        >
+          Kapat
+        </button>
+      </div>
+    </div>
+
+    <div
       v-if="conflictDialog"
       class="modal-backdrop"
       @click.self="resolveConflict('cancel')"
@@ -1634,6 +1809,56 @@ async function confirmPermDelete(item: StagedItem) {
   color: var(--muted);
   font-size: 11px;
   margin-left: 8px;
+}
+
+.shortcuts-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 24px;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.shortcut-table td {
+  padding: 6px 8px;
+  border-bottom: 1px dashed var(--border);
+  color: var(--fg);
+  vertical-align: middle;
+}
+
+.shortcut-table td:first-child {
+  width: 200px;
+  white-space: nowrap;
+}
+
+.shortcut-table kbd {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #93c5fd;
+  margin: 0 2px;
+}
+
+.shortcut-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
 }
 
 .card {
