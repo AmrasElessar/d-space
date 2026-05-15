@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from "vue";
+import { computed, ref, onMounted, onBeforeUnmount, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useI18n } from "vue-i18n";
@@ -267,6 +267,59 @@ const expiredCleanupBusy = ref<boolean>(false);
 const expiredCleanupReport = ref<CleanupReport | null>(null);
 const expiredCleanupError = ref<string | null>(null);
 const expiredConfirmOpen = ref<boolean>(false);
+
+// Bölüm 17.1 — yerel performans telemetrisi (gönderim YOK, sadece UI).
+interface PerfSample {
+  ts: number;
+  collect_ms: number;
+  build_ms: number;
+  total_ms: number;
+  node_count: number;
+  strategy: string;
+}
+const perfHistory = ref<PerfSample[]>([]);
+const MAX_PERF_HISTORY = 20;
+
+function recordPerfSample(summary: ScanSummary) {
+  const sample: PerfSample = {
+    ts: Date.now(),
+    collect_ms: summary.collect_elapsed_ms,
+    build_ms: summary.build_elapsed_ms,
+    total_ms: summary.collect_elapsed_ms + summary.build_elapsed_ms,
+    node_count: summary.node_count,
+    strategy: summary.strategy,
+  };
+  perfHistory.value = [sample, ...perfHistory.value].slice(0, MAX_PERF_HISTORY);
+}
+
+const perfStats = computed(() => {
+  if (perfHistory.value.length === 0) return null;
+  const totals = perfHistory.value.map((s) => s.total_ms);
+  const sum = totals.reduce((a, b) => a + b, 0);
+  return {
+    count: perfHistory.value.length,
+    avg: Math.round(sum / totals.length),
+    min: Math.min(...totals),
+    max: Math.max(...totals),
+    last: totals[0],
+  };
+});
+
+// Bölüm 18.3 — telemetry opt-in flag. Gerçek event endpoint YOK (v0.2);
+// bu sprint sadece kullanıcı tercihini settings'e kaydeder.
+const telemetryOptIn = ref<boolean>(false);
+
+async function setTelemetryOptIn(v: boolean) {
+  telemetryOptIn.value = v;
+  try {
+    await invoke("set_setting_cmd", {
+      key: "telemetry_opt_in",
+      value: v ? "1" : "0",
+    });
+  } catch (err) {
+    console.warn("telemetry pref kaydedilemedi", err);
+  }
+}
 
 async function refreshExpired() {
   try {
@@ -548,6 +601,15 @@ onMounted(async () => {
   }
   await refreshStaging();
   await refreshExpired();
+  // Bölüm 18.3 — telemetry tercih
+  try {
+    const t = await invoke<string | null>("get_setting_cmd", {
+      key: "telemetry_opt_in",
+    });
+    telemetryOptIn.value = t === "1";
+  } catch {
+    /* settings yoksa default false */
+  }
   // Bölüm 19 — kayıtlı dil tercihi
   try {
     const pref = await invoke<string | null>("get_setting_cmd", {
@@ -711,6 +773,7 @@ async function runFullScan() {
     scanSummary.value = await invoke<ScanSummary>("scan_full", {
       drive: drive.value,
     });
+    recordPerfSample(scanSummary.value);
     await loadWindow(scanSummary.value.root_id);
   } catch (err) {
     scanError.value = formatIpcError(err);
@@ -1878,6 +1941,52 @@ async function confirmPermDelete(item: StagedItem) {
     </div>
 
     <section v-if="showAdvanced" class="card">
+      <h2>Performans + Gizlilik (Bölüm 17.1 + 18.3)</h2>
+      <div v-if="perfStats" class="grid">
+        <div class="row">
+          <span class="key">Son tarama</span>
+          <span class="val mono">{{ perfStats.last }} ms</span>
+        </div>
+        <div class="row">
+          <span class="key">Ortalama</span>
+          <span class="val mono">
+            {{ perfStats.avg }} ms ({{ perfStats.count }} örnek)
+          </span>
+        </div>
+        <div class="row">
+          <span class="key">Aralık</span>
+          <span class="val mono">
+            {{ perfStats.min }}–{{ perfStats.max }} ms
+          </span>
+        </div>
+      </div>
+      <p v-else class="muted">
+        Henüz tarama örneği yok. Tarayınca son 20 ölçüm burada özetlenir.
+      </p>
+      <div class="probe-bar">
+        <label class="sort-label">
+          <input
+            type="checkbox"
+            :checked="telemetryOptIn"
+            @change="
+              setTelemetryOptIn(
+                ($event.target as HTMLInputElement).checked,
+              )
+            "
+          />
+          Anonim performans telemetrisine katıl (default kapalı)
+        </label>
+        <span class="scan-quick mono">
+          {{ telemetryOptIn ? "opt-in" : "opt-out" }}
+        </span>
+      </div>
+      <p class="muted privacy-note">
+        Bölüm 18.3 — gerçek telemetry endpoint v0.2'de. Şimdilik bu tercih
+        yalnızca settings'e kaydedilir; hiçbir veri gönderilmez.
+      </p>
+    </section>
+
+    <section v-if="showAdvanced" class="card">
       <h2>Veritabanı (Bölüm 14)</h2>
       <div v-if="dbInfo" class="grid">
         <div class="row">
@@ -2100,6 +2209,11 @@ async function confirmPermDelete(item: StagedItem) {
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
+}
+
+.privacy-note {
+  font-size: 11px;
+  margin-top: 8px;
 }
 
 .shortcuts-dialog {
