@@ -14,11 +14,12 @@
 // ml_scores.
 
 use crate::error::{Error, Result};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -124,6 +125,32 @@ pub fn db_info(conn: &Connection) -> Result<DbInfo> {
         table_count,
         spec_version,
     })
+}
+
+/// Bölüm 14 — `settings` tablosu üzerinden key/value okuma. Yoksa `None`.
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |r| r.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|e| Error::Db(format!("settings get '{}': {}", key, e)))
+}
+
+/// Bölüm 14 — upsert: aynı anahtar varsa value günceller.
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params![key, value, now],
+    )
+    .map_err(|e| Error::Db(format!("settings set '{}': {}", key, e)))?;
+    Ok(())
 }
 
 /// Tauri yönetilen state: tek `Connection`'ı `Mutex` ile sarar.

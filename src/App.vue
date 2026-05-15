@@ -8,6 +8,7 @@ import Bubble from "./components/Bubble.vue";
 import Timeline from "./components/Timeline.vue";
 import SnapshotPanel from "./components/SnapshotPanel.vue";
 import DuplicatePanel from "./components/DuplicatePanel.vue";
+import Onboarding from "./components/Onboarding.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -275,6 +276,9 @@ const conflictError = ref<string | null>(null);
 // + tüm tanı kartları (Volume Pre-Flight, MFT Probe, Walk, raw ScanTree, DB).
 const showAdvanced = ref<boolean>(false);
 
+// Bölüm 15.3 + 37 — ilk açılış. settings.onboarding_done = "1" flag.
+const onboardingVisible = ref<boolean>(false);
+
 function toggleAdvanced() {
   showAdvanced.value = !showAdvanced.value;
 }
@@ -454,7 +458,39 @@ onMounted(async () => {
     dbError.value = formatIpcError(err);
   }
   await refreshStaging();
+  // Bölüm 15.3 — ilk açılış kontrolü.
+  try {
+    const done = await invoke<string | null>("get_setting_cmd", {
+      key: "onboarding_done",
+    });
+    if (done !== "1") {
+      onboardingVisible.value = true;
+    }
+  } catch (err) {
+    // Settings okunamazsa onboarding'i atla — ilk açılışı bozma.
+    console.warn("settings get error", err);
+  }
 });
+
+async function finishOnboarding(mode: "fast" | "standard") {
+  try {
+    await invoke("set_setting_cmd", {
+      key: "onboarding_done",
+      value: "1",
+    });
+    await invoke("set_setting_cmd", {
+      key: "scan_strategy_preference",
+      value: mode,
+    });
+  } catch (err) {
+    console.warn("settings set error", err);
+  }
+  onboardingVisible.value = false;
+  // Hızlı mod → otomatik tarama başlat (Bölüm 15.3 adım 3).
+  if (mode === "fast" && !scanning.value) {
+    runFullScan();
+  }
+}
 
 function formatIpcError(err: unknown): string {
   if (typeof err === "string") return err;
@@ -1618,6 +1654,11 @@ async function confirmPermDelete(item: StagedItem) {
         <p v-if="conflictError" class="err">{{ conflictError }}</p>
       </div>
     </div>
+
+    <Onboarding
+      :visible="onboardingVisible"
+      @finish="finishOnboarding"
+    />
 
     <SnapshotPanel />
 

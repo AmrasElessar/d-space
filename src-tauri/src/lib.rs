@@ -15,7 +15,7 @@ pub mod snapshot;
 pub mod staging;
 pub mod volume;
 
-use crate::db::{db_info, open_db, DbInfo, DbState};
+use crate::db::{db_info, get_setting, open_db, set_setting, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::error::{Error, Result};
 use crate::locked_file::{probe_file, LockedFileProbe};
@@ -261,6 +261,30 @@ fn permanent_delete_cmd(
     permanent_delete(id, &confirm_phrase, &mut conn)
 }
 
+/// Bölüm 14 — settings KV okuma (onboarding flag, kullanıcı tercihleri vs.).
+#[tauri::command]
+fn get_setting_cmd(key: String, state: tauri::State<'_, DbState>) -> Result<Option<String>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    get_setting(&conn, &key)
+}
+
+/// Bölüm 14 — settings KV upsert.
+#[tauri::command]
+fn set_setting_cmd(
+    key: String,
+    value: String,
+    state: tauri::State<'_, DbState>,
+) -> Result<()> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    set_setting(&conn, &key, &value)
+}
+
 /// Bölüm 14 — DB metadata sorgusu (path, schema_version, journal_mode, ...).
 #[tauri::command]
 fn get_db_info(state: tauri::State<'_, DbState>) -> Result<DbInfo> {
@@ -434,6 +458,8 @@ pub fn run() {
             probe_locked_file_cmd,
             permanent_delete_cmd,
             undo_resolve_staging,
+            get_setting_cmd,
+            set_setting_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");
