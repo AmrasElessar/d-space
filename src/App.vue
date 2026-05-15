@@ -270,6 +270,15 @@ const conflictDialog = ref<ConflictDialogState | null>(null);
 const conflictBusy = ref<boolean>(false);
 const conflictError = ref<string | null>(null);
 
+// Bölüm 15.1.1-15.1.2 Progressive Disclosure — Üç seviye görünüm.
+// Default summary (Seviye 1+2): ana akış + drilldown. Advanced (Seviye 3):
+// + tüm tanı kartları (Volume Pre-Flight, MFT Probe, Walk, raw ScanTree, DB).
+const showAdvanced = ref<boolean>(false);
+
+function toggleAdvanced() {
+  showAdvanced.value = !showAdvanced.value;
+}
+
 function formatHex(n: number): string {
   return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
 }
@@ -684,11 +693,62 @@ async function confirmPermDelete(item: StagedItem) {
       <div class="brand">
         <span class="logo-dot"></span>
         <h1>{{ info?.name ?? "D-Space" }}</h1>
+        <button
+          type="button"
+          class="adv-toggle"
+          :class="{ 'adv-toggle-active': showAdvanced }"
+          :title="
+            showAdvanced
+              ? 'Tanı kartlarını gizle (Seviye 1 — özet)'
+              : 'Tanı kartlarını göster (Seviye 3 — power user)'
+          "
+          @click="toggleAdvanced"
+        >
+          {{ showAdvanced ? "🔬 Tanı: AÇIK" : "🔬 Tanı modu" }}
+        </button>
       </div>
       <p class="tagline">Görmek, anlamak, geri kazanmak.</p>
+
+      <!-- Bölüm 15.1.3 Badge group: summary metrikler (scan_summary doluysa) -->
+      <div v-if="scanSummary" class="badge-group">
+        <span
+          class="badge badge-blue"
+          :title="`Toplam: ${formatBytes(scanSummary.total_bytes)}`"
+        >
+          📊 {{ formatBytes(scanSummary.total_bytes) }}
+        </span>
+        <span
+          class="badge badge-blue"
+          :title="`${scanSummary.file_count.toLocaleString('tr-TR')} dosya · ${scanSummary.dir_count.toLocaleString('tr-TR')} klasör`"
+        >
+          📁 {{ scanSummary.dir_count.toLocaleString("tr-TR") }} ·
+          📄 {{ scanSummary.file_count.toLocaleString("tr-TR") }}
+        </span>
+        <span
+          v-if="walkStats && walkStats.skipped_errors > 0"
+          class="badge badge-warn"
+          :title="`Tarama sırasında ${walkStats.skipped_errors} kayıt okunamadı`"
+        >
+          ⚠ {{ walkStats.skipped_errors }} atlandı
+        </span>
+        <span
+          v-if="stagingList.length > 0"
+          class="badge badge-amber"
+          :title="`Staging kuyruğunda ${stagingList.length} öğe (24h undo)`"
+        >
+          📥 {{ stagingList.length }} staging
+        </span>
+        <span
+          v-if="dbInfo"
+          class="badge badge-ghost"
+          :title="`DB schema v${dbInfo.schema_version} · ${dbInfo.table_count} tablo`"
+        >
+          ℹ DB v{{ dbInfo.schema_version }}
+        </span>
+      </div>
     </header>
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>Durum</h2>
       <div v-if="info" class="grid">
         <div class="row">
@@ -713,7 +773,7 @@ async function confirmPermDelete(item: StagedItem) {
       <p v-else class="muted">Sürüm bilgisi alınıyor…</p>
     </section>
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>Yetki Durumu</h2>
       <div v-if="privilege" class="grid">
         <div class="row">
@@ -730,7 +790,7 @@ async function confirmPermDelete(item: StagedItem) {
       </div>
     </section>
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>Volume Pre-Flight (Bölüm 33.2 Katman 0)</h2>
       <div class="probe-bar">
         <input
@@ -793,7 +853,7 @@ async function confirmPermDelete(item: StagedItem) {
       <p v-if="volumeError" class="err">{{ volumeError }}</p>
     </section>
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>MFT Probe (Bölüm 5)</h2>
       <div class="probe-bar">
         <input
@@ -841,7 +901,7 @@ async function confirmPermDelete(item: StagedItem) {
       <p v-if="probeError" class="err">{{ probeError }}</p>
     </section>
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>MFT Full Walk (Bölüm 5.1 + 4.3 Adım 2)</h2>
       <div class="probe-bar">
         <button
@@ -904,18 +964,29 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section class="card">
-      <h2>Tam Tarama + ScanTree (Bölüm 4.3 + 4.4)</h2>
+      <h2>Tam Tarama</h2>
       <div class="probe-bar">
+        <input
+          v-model="drive"
+          maxlength="3"
+          spellcheck="false"
+          class="drive-input mono"
+          aria-label="Sürücü harfi"
+        />
         <button
           type="button"
           class="probe-btn"
           :disabled="scanning"
           @click="runFullScan"
         >
-          {{ scanning ? `Taranıyor ${drive}…` : `Tam tarama: ${drive}` }}
+          {{ scanning ? `Taranıyor ${drive}…` : `Tara: ${drive}:` }}
         </button>
+        <span v-if="scanSummary" class="scan-quick mono">
+          {{ strategyLabel(scanSummary.strategy) }} ·
+          {{ scanSummary.collect_elapsed_ms + scanSummary.build_elapsed_ms }} ms
+        </span>
       </div>
-      <div v-if="scanSummary" class="grid">
+      <div v-if="scanSummary && showAdvanced" class="grid">
         <div class="row">
           <span class="key">Strateji</span>
           <span class="val">{{ strategyLabel(scanSummary.strategy) }}</span>
@@ -1377,7 +1448,7 @@ async function confirmPermDelete(item: StagedItem) {
 
     <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>Veritabanı (Bölüm 14)</h2>
       <div v-if="dbInfo" class="grid">
         <div class="row">
@@ -1405,7 +1476,7 @@ async function confirmPermDelete(item: StagedItem) {
       <p v-if="dbError" class="err">{{ dbError }}</p>
     </section>
 
-    <section class="card">
+    <section v-if="showAdvanced" class="card">
       <h2>Yol Haritası</h2>
       <ol class="roadmap">
         <li class="done">Spec v1.4 donduruldu (37 bölüm, 4 edge case kapatıldı)</li>
@@ -1467,6 +1538,7 @@ async function confirmPermDelete(item: StagedItem) {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex-wrap: wrap;
 }
 
 .logo-dot {
@@ -1482,12 +1554,86 @@ async function confirmPermDelete(item: StagedItem) {
   font-size: 32px;
   letter-spacing: -0.02em;
   font-weight: 600;
+  flex: 1;
 }
 
 .tagline {
   margin: 8px 0 0;
   color: var(--muted);
   font-size: 15px;
+}
+
+.adv-toggle {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.adv-toggle:hover {
+  border-color: #2a8a99;
+  color: var(--fg);
+}
+
+.adv-toggle-active {
+  background: #1f6f7c33;
+  border-color: #2a8a99;
+  color: #93c5fd;
+}
+
+.badge-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  font-family: ui-monospace, monospace;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.badge-blue {
+  border-color: #1e3a8a66;
+  background: #1e3a8a22;
+  color: #93c5fd;
+}
+
+.badge-warn {
+  border-color: #78350f66;
+  background: #78350f22;
+  color: #fcd34d;
+}
+
+.badge-amber {
+  border-color: #14532d66;
+  background: #14532d22;
+  color: #6ee7b7;
+}
+
+.badge-ghost {
+  color: var(--muted);
+}
+
+.scan-quick {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: 8px;
 }
 
 .card {
