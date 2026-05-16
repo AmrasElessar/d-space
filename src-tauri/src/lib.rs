@@ -161,7 +161,10 @@ async fn scan_full<R: tauri::Runtime>(
     .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
 
     emit_task.abort();
-    // Son bir emit — tamamlandı.
+    // Son bir emit — tamamlandı. Sprint 3.7: final partial_tree de göndeririz
+    // ki canlı sunburst tarama sonunda tam haritayı (root + 2 seviye + top-200)
+    // alıp final state'e geçiş yapsın.
+    let final_partial = crate::scan::tree::build_partial_view(&tree, 2, 200);
     let _ = window.emit(
         "scan-progress",
         &ScanProgress {
@@ -171,6 +174,7 @@ async fn scan_full<R: tauri::Runtime>(
             in_use: summary.node_count,
             last_name: String::new(),
             elapsed_ms: summary.collect_elapsed_ms + summary.build_elapsed_ms,
+            partial_tree: Some(final_partial),
         },
     );
 

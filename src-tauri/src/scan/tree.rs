@@ -62,6 +62,98 @@ pub struct ScanTree {
     pub build_elapsed_ms: u64,
 }
 
+/// Bölüm 9.6.5 + 15.4 — canlı tarama görseli için sade düğüm.
+/// `ScanProgress.partial_tree` alanı bu vector'ü taşır. Frontend
+/// `LiveSunburst.vue` doğrudan tüketir — full `Node`'a göre daha küçük
+/// payload (skor alanları gerekmez, modified_unix gerekmez).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PartialNode {
+    pub id: NodeId,
+    pub parent: Option<NodeId>,
+    pub name: String,
+    pub aggregate_size: u64,
+    pub depth: usize,
+    pub is_dir: bool,
+}
+
+/// Bölüm 9.6.5 — canlı sunburst için root + ilk N seviyenin top_n
+/// agrega tüketicisini döner. Düğümler agrega boyuta göre azalan sırada.
+///
+/// * `max_depth` — root (depth 0) dahil edilecek maksimum derinlik.
+///   Örn. `max_depth=2` → root + birinci seviye + ikinci seviye.
+/// * `top_n` — sonuç vector'ünün maksimum eleman sayısı (root + ilk N-1).
+///   Root her zaman ilk eleman, kalan slotlar agrega tüketicilerine.
+pub fn build_partial_view(tree: &ScanTree, max_depth: usize, top_n: usize) -> Vec<PartialNode> {
+    if top_n == 0 {
+        return Vec::new();
+    }
+    let Some(root_node) = tree.nodes.get(&tree.root_id) else {
+        return Vec::new();
+    };
+
+    // BFS: (id, depth). depth=0 root. max_depth dahil.
+    let mut candidates: Vec<PartialNode> = Vec::new();
+    let mut queue: std::collections::VecDeque<(NodeId, usize)> = std::collections::VecDeque::new();
+    queue.push_back((tree.root_id, 0));
+    let mut visited: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
+    visited.insert(tree.root_id);
+
+    while let Some((id, depth)) = queue.pop_front() {
+        if depth > max_depth {
+            continue;
+        }
+        if let Some(node) = tree.nodes.get(&id) {
+            // Root her zaman dahil, diğer düğümler için aggregate_size > 0 şartı.
+            if id == tree.root_id || node.aggregate_size > 0 {
+                candidates.push(PartialNode {
+                    id: node.id,
+                    parent: node.parent,
+                    name: node.name.clone(),
+                    aggregate_size: node.aggregate_size,
+                    depth,
+                    is_dir: node.is_dir,
+                });
+            }
+        }
+        if depth >= max_depth {
+            continue;
+        }
+        if let Some(child_ids) = tree.children.get(&id) {
+            for &cid in child_ids {
+                if visited.insert(cid) {
+                    queue.push_back((cid, depth + 1));
+                }
+            }
+        }
+    }
+
+    // Root'u ayır, kalanları boyutla azalan sırala, sonra root + top (N-1)
+    // şeklinde birleştir. Eğer top_n=1 ise sadece root döner.
+    let root_partial = candidates
+        .iter()
+        .find(|p| p.id == tree.root_id)
+        .cloned()
+        .unwrap_or_else(|| PartialNode {
+            id: tree.root_id,
+            parent: None,
+            name: root_node.name.clone(),
+            aggregate_size: root_node.aggregate_size,
+            depth: 0,
+            is_dir: true,
+        });
+    let mut rest: Vec<PartialNode> = candidates
+        .into_iter()
+        .filter(|p| p.id != tree.root_id)
+        .collect();
+    rest.sort_by_key(|p| std::cmp::Reverse(p.aggregate_size));
+    rest.truncate(top_n.saturating_sub(1));
+
+    let mut out = Vec::with_capacity(rest.len() + 1);
+    out.push(root_partial);
+    out.extend(rest);
+    out
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanSummary {
     pub drive: String,
@@ -626,6 +718,86 @@ mod tests {
             names,
             vec!["<volume root>", "Projeler", "d-space", "src", "main.rs"]
         );
+    }
+
+    #[test]
+    fn partial_view_top_n_sorted_desc() {
+        // Sprint 3.7 — root altında 5 düğüm, top_n=3 büyük üçünü vermeli (root + 2).
+        let raw = vec![
+            r(100, 5, "small", 100, false),
+            r(101, 5, "medium", 500, false),
+            r(102, 5, "big", 5_000, false),
+            r(103, 5, "huge", 50_000, false),
+            r(104, 5, "tiny", 10, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+        let view = build_partial_view(&tree, 2, 3);
+        assert_eq!(view.len(), 3);
+        // İlk eleman root.
+        assert_eq!(view[0].id, ROOT_RECORD);
+        assert_eq!(view[0].depth, 0);
+        // Sonra azalan boyut sırası: huge(50000), big(5000).
+        assert_eq!(view[1].name, "huge");
+        assert_eq!(view[1].aggregate_size, 50_000);
+        assert_eq!(view[2].name, "big");
+        assert_eq!(view[2].aggregate_size, 5_000);
+        // medium / small / tiny dışarıda kaldı.
+    }
+
+    #[test]
+    fn partial_view_respects_max_depth() {
+        // root → docs/ → a.txt
+        // root → bin/  → sub/  → deep.bin
+        // max_depth=1 → root + docs + bin. deep.bin (depth 3) yok.
+        // max_depth=2 → root + docs + bin + a.txt + sub. deep.bin (depth 3) yok.
+        let raw = vec![
+            r(100, 5, "docs", 0, true),
+            r(101, 100, "a.txt", 200, false),
+            r(200, 5, "bin", 0, true),
+            r(201, 200, "sub", 0, true),
+            r(202, 201, "deep.bin", 4096, false),
+        ];
+        let tree = build_tree("vol".into(), raw);
+
+        let v1 = build_partial_view(&tree, 1, 100);
+        let names_v1: Vec<&str> = v1.iter().map(|p| p.name.as_str()).collect();
+        assert!(names_v1.contains(&"<volume root>"));
+        assert!(names_v1.contains(&"docs"));
+        assert!(names_v1.contains(&"bin"));
+        assert!(!names_v1.contains(&"a.txt"));
+        assert!(!names_v1.contains(&"sub"));
+        assert!(!names_v1.contains(&"deep.bin"));
+
+        let v2 = build_partial_view(&tree, 2, 100);
+        let names_v2: Vec<&str> = v2.iter().map(|p| p.name.as_str()).collect();
+        assert!(names_v2.contains(&"a.txt"));
+        assert!(names_v2.contains(&"sub"));
+        assert!(!names_v2.contains(&"deep.bin"), "depth 3 dışarıda kalmalı");
+    }
+
+    #[test]
+    fn partial_view_handles_empty_tree() {
+        // Hiç raw entry yok — sadece sentetik root garantili.
+        let tree = build_tree("vol".into(), vec![]);
+        let view = build_partial_view(&tree, 2, 50);
+        // Root tek başına dönmeli (aggregate_size=0 ama her zaman dahil).
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].id, ROOT_RECORD);
+        assert_eq!(view[0].depth, 0);
+        assert_eq!(view[0].aggregate_size, 0);
+
+        // top_n=0 boş vector.
+        let view0 = build_partial_view(&tree, 2, 0);
+        assert!(view0.is_empty());
+    }
+
+    #[test]
+    fn partial_view_top_n_one_returns_only_root() {
+        let raw = vec![r(100, 5, "docs", 500, false), r(101, 5, "bin", 1000, false)];
+        let tree = build_tree("vol".into(), raw);
+        let view = build_partial_view(&tree, 2, 1);
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].id, ROOT_RECORD);
     }
 
     #[test]

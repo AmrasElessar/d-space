@@ -20,7 +20,10 @@
 
 use crate::error::{Error, Result};
 use crate::scan::tree::ROOT_RECORD;
-use crate::scan::walk::{MftEntries, ProgressCb, RawMftEntry, ScanProgress};
+use crate::scan::walk::{
+    build_partial_from_raw, MftEntries, ProgressCb, RawMftEntry, ScanProgress,
+    PARTIAL_TREE_INTERVAL, PARTIAL_TREE_MAX_DEPTH, PARTIAL_TREE_TOP_N,
+};
 use crate::scan::NodeId;
 use std::collections::{HashMap, VecDeque};
 use std::fs::Metadata;
@@ -81,11 +84,23 @@ pub fn scan_find_first_with_progress(
     let mut skipped_symlinks: u64 = 0;
     let mut max_depth_hits: u64 = 0;
     let mut visited_dirs: u64 = 0;
+    // Sprint 3.7 — canlı sunburst snapshot eşiği (entries büyüklüğüne göre).
+    let mut next_partial_at: u64 = PARTIAL_TREE_INTERVAL;
 
     while let Some((dir, parent_id, depth)) = queue.pop_front() {
         visited_dirs += 1;
         if let Some(cb) = progress_cb {
             if entries.len() as u64 % FALLBACK_PROGRESS_INTERVAL == 0 {
+                let partial = if entries.len() as u64 >= next_partial_at {
+                    next_partial_at = next_partial_at.saturating_add(PARTIAL_TREE_INTERVAL);
+                    Some(build_partial_from_raw(
+                        &entries,
+                        PARTIAL_TREE_MAX_DEPTH,
+                        PARTIAL_TREE_TOP_N,
+                    ))
+                } else {
+                    None
+                };
                 cb(&ScanProgress {
                     phase: "fallback_walk",
                     visited: entries.len() as u64,
@@ -93,6 +108,7 @@ pub fn scan_find_first_with_progress(
                     in_use: visited_dirs,
                     last_name: dir.display().to_string(),
                     elapsed_ms: start.elapsed().as_millis() as u64,
+                    partial_tree: partial,
                 });
             }
         }

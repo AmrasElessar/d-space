@@ -25,6 +25,9 @@
     "buttonIdle": "Scan: {drive}:",
     "buttonBusy": "Scanning {drive}…"
   },
+  "scanProgress": {
+    "liveEmpty": "Waiting for first results…"
+  },
   "drilldown": {
     "title": "Drilldown",
     "viewMode": "View mode",

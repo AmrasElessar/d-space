@@ -56,6 +56,8 @@ pub struct MftEntries {
 }
 
 /// Bölüm 9.6.5 — tarama ilerlemesi event'i. Backend her N entry'de bir emit eder.
+/// `partial_tree`: Sprint 3.7 — her 10k entry'de canlı sunburst için root +
+/// 2 seviye + top-200 düğüm snapshot. Diğer event'lerde `None` (payload küçük).
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanProgress {
     pub phase: &'static str,
@@ -64,12 +66,20 @@ pub struct ScanProgress {
     pub in_use: u64,
     pub last_name: String,
     pub elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_tree: Option<Vec<crate::scan::tree::PartialNode>>,
 }
 
 /// `Fn(&ScanProgress)` callback alias — heap-allocated closure'lardan kaçınmak için.
 pub type ProgressCb<'a> = &'a (dyn Fn(&ScanProgress) + Send + Sync);
 
 const MFT_PROGRESS_INTERVAL: u64 = 5000;
+/// Sprint 3.7 — canlı sunburst snapshot frekansı (entries sayısına göre).
+pub(crate) const PARTIAL_TREE_INTERVAL: u64 = 10_000;
+/// Sprint 3.7 — canlı sunburst max derinlik (root + 2 seviye).
+pub(crate) const PARTIAL_TREE_MAX_DEPTH: usize = 2;
+/// Sprint 3.7 — canlı sunburst top-N düğüm (root + 199).
+pub(crate) const PARTIAL_TREE_TOP_N: usize = 200;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MftWalkStats {
@@ -177,6 +187,21 @@ pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
     collect_mft_entries_with_progress(drive, None)
 }
 
+/// Sprint 3.7 — canlı sunburst için raw entries'den hafif partial view inşa eder.
+/// `build_tree` çağırır (user rules yok = hızlı), sonra `build_partial_view`
+/// ile root + max_depth seviye + top_n döner. Walk içinde her 10k entry'de
+/// çağrılır; full tree build maliyeti büyür ama 10k aralığında kabul edilebilir.
+pub(crate) fn build_partial_from_raw(
+    entries: &[RawMftEntry],
+    max_depth: usize,
+    top_n: usize,
+) -> Vec<crate::scan::tree::PartialNode> {
+    // Sığ klon — RawMftEntry küçük struct, alloc maliyeti düşük.
+    let snapshot = entries.to_vec();
+    let tree = crate::scan::tree::build_tree(String::new(), snapshot);
+    crate::scan::tree::build_partial_view(&tree, max_depth, top_n)
+}
+
 /// Tam MFT entry koleksiyonu — `build_tree` için besin kaynağı.
 /// System records (0-15) atlanır. Volume root NTFS'te record 5'tir.
 /// `progress_cb` her `MFT_PROGRESS_INTERVAL` entry'de bir çağrılır (Bölüm 9.6.5).
@@ -205,6 +230,10 @@ pub fn collect_mft_entries_with_progress(
     let mut entries: Vec<RawMftEntry> = Vec::with_capacity((cap as usize / 2).max(1024));
     let mut skipped = 0u64;
     let mut last_name = String::new();
+    // Sprint 3.7 — her PARTIAL_TREE_INTERVAL entry'de bir partial tree
+    // snapshot üret. Sayım entries'in mutlak boyutu üzerinden — record
+    // sayısı değil. Yeni eşik aşıldığında bir kez tetiklenir.
+    let mut next_partial_at: u64 = PARTIAL_TREE_INTERVAL;
 
     // Root directory (record 5) sentetik düğüm olarak eklenmez —
     // collect aşamasında kullanıcı entries'i temiz görür; build_tree
@@ -213,6 +242,16 @@ pub fn collect_mft_entries_with_progress(
         // Progress event
         if let Some(cb) = progress_cb {
             if (record_no - 16) % MFT_PROGRESS_INTERVAL == 0 {
+                let partial = if entries.len() as u64 >= next_partial_at {
+                    next_partial_at = next_partial_at.saturating_add(PARTIAL_TREE_INTERVAL);
+                    Some(build_partial_from_raw(
+                        &entries,
+                        PARTIAL_TREE_MAX_DEPTH,
+                        PARTIAL_TREE_TOP_N,
+                    ))
+                } else {
+                    None
+                };
                 cb(&ScanProgress {
                     phase: "mft_walk",
                     visited: record_no - 16,
@@ -220,6 +259,7 @@ pub fn collect_mft_entries_with_progress(
                     in_use: entries.len() as u64,
                     last_name: last_name.clone(),
                     elapsed_ms: start.elapsed().as_millis() as u64,
+                    partial_tree: partial,
                 });
             }
         }

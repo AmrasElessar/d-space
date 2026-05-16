@@ -4,10 +4,23 @@
 
   Backend `scan-progress` event'lerini dinler. Tam ekran overlay:
   faz adı, sayım, son taranan path, hız (file/sn), tahmini ETA.
+  Sprint 3.7 — split layout: sol canlı sunburst (LiveSunburst), sağ
+  sayısal stats. `partial_tree` her 10k entry'de backend'den taşınır.
   Tarama bitince fade-out.
 -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import LiveSunburst from "./LiveSunburst.vue";
+
+interface PartialNode {
+  id: number;
+  parent: number | null;
+  name: string;
+  aggregate_size: number;
+  depth: number;
+  is_dir: boolean;
+}
 
 interface ScanProgressEvent {
   phase: string;
@@ -16,12 +29,37 @@ interface ScanProgressEvent {
   in_use: number;
   last_name: string;
   elapsed_ms: number;
+  partial_tree?: PartialNode[] | null;
 }
+
+const { t } = useI18n();
 
 const props = defineProps<{
   visible: boolean;
   progress: ScanProgressEvent | null;
 }>();
+
+// Sprint 3.7 — backend yalnızca 10k entry'de partial_tree gönderir, ara
+// event'ler `null/undefined`. Son alınan dolu tree'yi belleğe alıp
+// LiveSunburst'a stabil veri akışı sağlarız. visible=false olunca
+// (overlay kapanınca) bayatlamamak için sıfırlanır.
+const latestPartialTree = ref<PartialNode[]>([]);
+
+watch(
+  () => props.progress?.partial_tree,
+  (incoming) => {
+    if (incoming && incoming.length > 0) {
+      latestPartialTree.value = incoming;
+    }
+  },
+);
+
+watch(
+  () => props.visible,
+  (v) => {
+    if (!v) latestPartialTree.value = [];
+  },
+);
 
 const phaseLabel = computed(() => {
   if (!props.progress) return "Hazırlanıyor…";
@@ -90,46 +128,59 @@ function truncatePath(p: string, max = 60): string {
         <h3 class="scan-phase">{{ phaseLabel }}</h3>
       </div>
 
-      <div class="scan-bar-wrap">
-        <div class="scan-bar-track">
-          <div
-            class="scan-bar-fill"
-            :style="{ width: percent > 0 ? `${percent}%` : '30%' }"
-            :class="{ 'scan-bar-indeterminate': percent === 0 }"
-          ></div>
+      <div class="scan-body">
+        <!-- Sol kolon: canlı sunburst (Sprint 3.7) -->
+        <div class="scan-visual">
+          <LiveSunburst
+            :partial-tree="latestPartialTree"
+            :empty-message="t('scanProgress.liveEmpty')"
+          />
         </div>
-        <span v-if="percent > 0" class="scan-percent mono">{{ percent }}%</span>
-      </div>
 
-      <div v-if="progress" class="scan-stats">
-        <div class="stat">
-          <span class="stat-key">Tarandı</span>
-          <span class="stat-val mono">{{ formatNumber(progress.visited) }}</span>
-        </div>
-        <div v-if="progress.total_estimate > 0" class="stat">
-          <span class="stat-key">Tahmini</span>
-          <span class="stat-val mono">
-            {{ formatNumber(progress.total_estimate) }}
-          </span>
-        </div>
-        <div class="stat">
-          <span class="stat-key">Hız</span>
-          <span class="stat-val mono">{{ formatNumber(speedPerSec) }}/sn</span>
-        </div>
-        <div class="stat">
-          <span class="stat-key">Süre</span>
-          <span class="stat-val mono">{{ formatMs(progress.elapsed_ms) }}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-key">Kalan</span>
-          <span class="stat-val mono">{{ formatEta(etaSec) }}</span>
+        <!-- Sağ kolon: sayısal stats -->
+        <div class="scan-info">
+          <div class="scan-bar-wrap">
+            <div class="scan-bar-track">
+              <div
+                class="scan-bar-fill"
+                :style="{ width: percent > 0 ? `${percent}%` : '30%' }"
+                :class="{ 'scan-bar-indeterminate': percent === 0 }"
+              ></div>
+            </div>
+            <span v-if="percent > 0" class="scan-percent mono">{{ percent }}%</span>
+          </div>
+
+          <div v-if="progress" class="scan-stats">
+            <div class="stat">
+              <span class="stat-key">Tarandı</span>
+              <span class="stat-val mono">{{ formatNumber(progress.visited) }}</span>
+            </div>
+            <div v-if="progress.total_estimate > 0" class="stat">
+              <span class="stat-key">Tahmini</span>
+              <span class="stat-val mono">
+                {{ formatNumber(progress.total_estimate) }}
+              </span>
+            </div>
+            <div class="stat">
+              <span class="stat-key">Hız</span>
+              <span class="stat-val mono">{{ formatNumber(speedPerSec) }}/sn</span>
+            </div>
+            <div class="stat">
+              <span class="stat-key">Süre</span>
+              <span class="stat-val mono">{{ formatMs(progress.elapsed_ms) }}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-key">Kalan</span>
+              <span class="stat-val mono">{{ formatEta(etaSec) }}</span>
+            </div>
+          </div>
+
+          <p v-if="progress && progress.last_name" class="scan-current mono">
+            {{ truncatePath(progress.last_name) }}
+          </p>
+          <p v-else class="scan-current muted">Tarama başlatılıyor…</p>
         </div>
       </div>
-
-      <p v-if="progress && progress.last_name" class="scan-current mono">
-        {{ truncatePath(progress.last_name) }}
-      </p>
-      <p v-else class="scan-current muted">Tarama başlatılıyor…</p>
     </div>
   </div>
 </template>
@@ -151,12 +202,42 @@ function truncatePath(p: string, max = 60): string {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 28px 36px;
-  max-width: 560px;
+  max-width: 820px;
   width: calc(100% - 32px);
   box-shadow: 0 24px 64px var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.scan-body {
+  display: flex;
+  gap: 28px;
+  align-items: stretch;
+}
+
+.scan-visual {
+  flex: 0 0 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scan-info {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .scan-body {
+    flex-direction: column;
+  }
+  .scan-visual {
+    flex: 0 0 auto;
+  }
 }
 
 .scan-header {

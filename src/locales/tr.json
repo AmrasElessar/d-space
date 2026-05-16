@@ -25,6 +25,9 @@
     "buttonIdle": "Tara: {drive}:",
     "buttonBusy": "Taranıyor {drive}…"
   },
+  "scanProgress": {
+    "liveEmpty": "İlk veriler bekleniyor…"
+  },
   "drilldown": {
     "title": "Drilldown",
     "viewMode": "Görüntü modu",
