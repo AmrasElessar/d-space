@@ -2,9 +2,10 @@
 
 # D-Space — Sonraki Oturum Yol Planı
 
-> **Son güncelleme:** 2026-05-16 (Sprint 3.1c üç-kolon sidebar tamam)
-> **Şu anki sürüm:** `v0.1.0-alpha` + Sprint 2H.3 (VSS pool) + Sprint 3.1c (3-kolon)
+> **Son güncelleme:** 2026-05-16 (Sprint 3.7 Live Sunburst + 3.8 USN Index tamam)
+> **Şu anki sürüm:** `v0.1.0-alpha` + 2H.3 (VSS) + 3.1c (3-kolon) + 3.7 (canlı) + 3.8 (USN)
 > **Hedef:** `v0.2.0-beta` → `v0.3.0` → `v1.0.0-stable`
+> **Test sayısı:** 105 Rust + 27 frontend = **132 passing**
 
 Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 1. Git pull + son durumu doğrula
@@ -15,11 +16,11 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 ## 🟢 ŞU AN: v0.1.0-alpha → v0.2.0-beta yolundayım
 
-**Sıradaki 4 sprint** (3.1c tamam — main'e commit'lendi, push bekliyor):
+**Sıradaki 2 sprint** (3.1c + 3.7 + 3.8 main'e cherry-pick'lendi, push bekliyor):
 
-> **Sıralama kararı (2026-05-16):** 3.7 ve 3.8 önce — kullanıcı deneyimi
-> doğrudan etkili (canlı görsel + Everything benzeri index). 3.5/3.6 release
-> altyapısı, ön kullanıcı geri bildirimi alındıktan sonra eklenir.
+> **Sıralama kararı (2026-05-16):** 3.7 ve 3.8 önce yapıldı — canlı görsel +
+> Everything benzeri index kullanıcı için en görünür kazanım. Sıradaki 3.5
+> (Playwright e2e) ve 3.6 (Tauri updater) release altyapısı.
 
 ### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar) ✅ TAMAMLANDI (2026-05-16)
 - **Sonuç:** App grid `280px minmax(0, 1fr)` — sticky sol sidebar + akıcı orta workspace; workspace içindeki 2-kolon (SnapshotPanel + DuplicatePanel/Detail) korundu, görsel olarak toplam 3-kolon.
@@ -41,54 +42,25 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 - **Feature gate:** `vss` (default OFF). Default build sıfır etki.
 - **Test:** 9 yeni unit test (hresult mapping, BSTR roundtrip, snapshot_path, pool dedupe, lease drop, reaper eviction + scan integration) — `cargo test --features vss --lib` ile 83/83 geçer.
 
-### Sprint 3.7 — Canlı tarama görseli (Live Sunburst)
-- **Mevcut:** `ScanProgress` overlay sadece sayısal (visited/total + ETA + son path). Sunburst/Treemap ancak tarama bitince render eder.
-- **Hedef (Bölüm 9.6.5 + 15.4):** Tarama sırasında **canlı dolan mini Sunburst** — kullanıcı diski "doluyor" hisseder.
-- **Backend (`src-tauri/`):**
-  - `scan/progress.rs` — `ScanProgress` event'ine yeni alan: `Vec<PartialNode>` (root + ilk 2 seviye, top-200 düğüm, aggregate_size). N=10k entry'de bir partial snapshot serialize edilir.
-  - `scan/tree.rs` — `build_partial_view(tree, max_depth=2, top_n=200)` API. Tree mutex'i altında lightweight clone, sıralama, kısalt.
-  - `scan-progress` event payload kırılma yok — `partial_tree: Option<Vec<PartialNode>>` opsiyonel alan.
-- **Frontend (`src/`):**
-  - `components/LiveSunburst.vue` (yeni, ~250 satır) — D3 transition tabanlı, her event'te wedge'ler büyür, son taranan path'in altındaki klasör highlight olur.
-  - `components/ScanProgress.vue` — sayısal stats sağ tarafta küçülür, sol tarafta `LiveSunburst` 360×360 px.
-  - Overlay arka planı semi-transparent, scroll lock korunur.
-- **Test:** Rust unit (partial tree top-N + depth limit), frontend mount + event-driven update doğrulama.
-- **Boyut tahmini:** ~150 Rust + ~300 Vue/TS + ~80 CSS.
-- **Risk:** Düşük. Backend mevcut event'e alan ekliyor; frontend yeni component, App.vue minimal değişir.
+### Sprint 3.7 — Canlı tarama görseli (Live Sunburst) ✅ TAMAMLANDI (2026-05-16, `9d10e73`)
+- **Sonuç:** `ScanProgress` overlay artık split layout — sol `LiveSunburst` (360×360 saf SVG arc, 2 halka, CSS transition), sağ sayısal stats. Backend `ScanProgress.partial_tree: Option<Vec<PartialNode>>` her 10k entry'de doluyor. `scan_full` "done" event'i final partial_tree taşır (root + 2 seviye + top-200).
+- **Dosyalar:** `scan/tree.rs` (+`build_partial_view`+`PartialNode`), `scan/walk.rs` + `scan/find_first.rs` (10k checkpoint), `lib.rs` (done emit), `LiveSunburst.vue` (yeni, ~310 satır), `ScanProgress.vue` (split + `latestPartialTree` flicker önleme + mobile @media), i18n `scanProgress.liveEmpty`.
+- **Test:** +4 Rust (`build_partial_view`: top-N + max_depth + empty + top-1) + +5 frontend (`LiveSunburst.test.ts`: empty, root=0, wedge count, largest largeArc, depth=2). 80 Rust + 21 frontend.
 
-### Sprint 3.8 — USN Journal Index katmanı (Everything modeli)
-- **Mevcut:** Her açılışta full MFT walk gerekir (5 sn).
-- **Hedef (Discovery Log #005, yeni Bölüm 5.6):** Persistent USN index → açılışta < 200 ms load + arka planda incremental delta sync. Search bar substring < 50 ms.
-- **Backend (`src-tauri/`):**
-  - Yeni modül `index/` — `usn.rs` (`FSCTL_ENUM_USN_DATA` + `FSCTL_READ_USN_JOURNAL` köprü), `persist.rs` (SQLite save/load), `delta.rs` (reason mask filter + apply), `watcher.rs` (background thread + batch flush 5 sn).
-  - SQLite migration `0002_usn_index.sql`:
-    ```sql
-    CREATE TABLE usn_index (
-      volume_id TEXT NOT NULL,
-      file_ref INTEGER NOT NULL,
-      parent_ref INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      usn_id INTEGER NOT NULL,
-      last_seen_unix INTEGER NOT NULL,
-      attrs INTEGER NOT NULL,
-      PRIMARY KEY (volume_id, file_ref)
-    );
-    CREATE INDEX idx_usn_name ON usn_index(name);
-    CREATE INDEX idx_usn_parent ON usn_index(volume_id, parent_ref);
-    CREATE TABLE usn_watermark (
-      volume_id TEXT PRIMARY KEY,
-      next_usn INTEGER NOT NULL,
-      journal_id INTEGER NOT NULL
-    );
-    ```
-  - Wraparound tespiti: `journal_id` değişti → full re-enumerate.
-  - Tauri commands: `index_build` (baseline), `index_status`, `index_search(query)`.
-- **Frontend (`src/`):**
-  - `components/IndexSearchBar.vue` (~200 satır) — Ctrl+F yeni davranış: globe search index üzerinde substring, sonuç listesi instant.
-  - `App.vue` — başlangıçta `index_build` arka plan trigger, status badge ("Indexleniyor… %X").
-- **Test:** USN reason mask parse, journal wraparound detection, SQLite roundtrip, search latency benchmark.
-- **Boyut tahmini:** ~600 Rust + ~250 Vue/TS + ~100 SQL.
-- **Risk:** Orta. USN journal admin gerektirir (Hızlı Mod zaten admin); journal disabled fallback path test edilmeli. Wraparound senaryosu unit test ile kapsanmalı.
+### Sprint 3.8 — USN Journal Index (Discovery #005) ✅ TAMAMLANDI (2026-05-16, `1ae1ad9`)
+- **Sonuç:** Yeni `src-tauri/src/index/` modülü (mod/usn/persist/delta/watcher). SQLite migration `0003_usn_index.sql` (`usn_index` + `usn_watermark` + 2 index). 3 Tauri command: `index_build` / `index_status` / `index_search`. Frontend `IndexSearchBar.vue` sticky üst kutu, 150 ms debounce, top-50 sonuç. App.vue entegrasyon: Ctrl+F handler → IndexSearchBar input fokusu; startup'ta arka plan `index_build` (admin yoksa `needs_admin` döner, sessizce geçilir); `onIndexResultSelect` → minimal pseudo-node detay paneline.
+- **v0.1 stub:** `index_build` gerçek `FSCTL_ENUM_USN_DATA` walker yerine **iskelet** (status döner). Baseline binary stream walker + race testleri sonraki minör sprint'te. Persist/delta/wraparound/watcher tam test edilmiş.
+- **Test:** +25 Rust (USN parse_v2 + apply_delta upsert/delete + detect_wraparound + persist roundtrip + index_search + watcher shutdown) + +6 frontend (mount, empty, debounce single+rapid, click emit, needs_admin). 105 Rust + 27 frontend = **132 passing**.
+- **Discovery Log #005** detaylı yazıldı: FSCTL kodları (`0x000900B3` / `0x000900BB`), USN_RECORD_V2 layout, windows-rs 0.61 const eksikliği (hand-roll), wraparound semantiği, migration 0003 sapması.
+
+### Sprint 3.8.1 — USN baseline walker (kalan iş, sonraki minör sprint)
+- **Bağlam:** 3.8 v0.1 stub'da `index_build` gerçek `FSCTL_ENUM_USN_DATA` walker yerine status döndürüyor. Persist/delta/wraparound/watcher altyapısı tam test edilmiş, tek eksik baseline binary stream walker.
+- **Kapsam:**
+  - `src-tauri/src/index/usn.rs` — `enumerate_baseline(volume_handle, buffer_size)` fonksiyonu: `DeviceIoControl` döngüsü, `USN_RECORD_V2` parse, `apply_delta` ile SQLite flush.
+  - 1 MB buffer, sayfa sayfa ilerle (`NextUsn` field), end-of-data tespit.
+  - Race test: baseline sürerken watcher delta'ları geldiğinde idempotent davranış (`apply_delta` UPSERT zaten kapsıyor).
+- **Boyut:** ~200 Rust + 2-3 integration test.
+- **Risk:** Orta. Tek IO yolu ama buffer boyutu / wraparound edge case'leri test gerekir.
 
 ### Sprint 3.5 — Playwright e2e altyapı (sonra)
 - **Hedef:** `tauri-driver` + `playwright` ile 5 smoke senaryo:
@@ -112,7 +84,7 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
   Private key → GitHub Secret. Public key → `tauri.conf.json`. Release workflow'a `includeUpdaterJson: true` ekle.
 - **Test:** v0.2.0-beta tag çek, eski v0.1.0-alpha kurulumdan auto-update çalıştığını doğrula.
 
-**Kalan 4 sprint (3.7 + 3.8 + 3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
+**Kalan 3 sprint (3.8.1 + 3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
 
 ---
 
@@ -195,7 +167,7 @@ git tag -l --sort=-creatordate | head -5
 
 ## 🎯 v1.0 başarı kriterleri
 
-- [ ] 200+ Rust test + 150+ frontend test (şu an 76 default + 9 vss-gated + 16 frontend = 101)
+- [ ] 200+ Rust test + 150+ frontend test (şu an 105 default + 9 vss-gated + 27 frontend = 141)
 - [ ] Tüm 5 pillar v1 kapsamında (şu an alpha düzeyi)
 - [ ] EV cert imzalı MSI + NSIS
 - [ ] SmartScreen reputation kazanılmış
@@ -208,20 +180,16 @@ git tag -l --sort=-creatordate | head -5
 
 ---
 
-## 🚦 Aktif sprint kararı: **3.7 + 3.8 paralel** (worktree, agent)
+## 🚦 Sıradaki sprint kararı: **3.8.1 USN baseline walker** (önerilen)
 
-3.1c üç-kolon sidebar tamamlandı (2026-05-16). v0.2.0-beta'ya 4 sprint:
-3.7 (canlı sunburst), 3.8 (USN index), 3.5 (e2e), 3.6 (updater).
+3.7 + 3.8 paralel agent'larda tamamlandı (2026-05-16). v0.2.0-beta'ya 3
+sprint kaldı: 3.8.1 (USN baseline walker), 3.5 (Playwright e2e), 3.6
+(Tauri updater).
 
-**Seçilen sıra (kullanıcı önerisi):** 3.7 ve 3.8 önce — çünkü her ikisi
-de doğrudan kullanıcı deneyimi (görsel + arama hızı). 3.7 ile 3.8 dosya
-çakışması düşük: 3.7 yalnızca `scan/` + `ScanProgress.vue` +
-`LiveSunburst.vue`'a dokunur; 3.8 yalnızca yeni `index/` modülü +
-`IndexSearchBar.vue` + SQLite migration. Ortak: `App.vue` birkaç satır.
+**Önerilen sıra:** önce **3.8.1** — Sprint 3.8'in v0.1 stub'ını gerçek
+walker ile tamamla (kullanıcı deneyimi tam etkili olur: ilk açılışta
+index doğsun, sonraki açılışlarda 0 sn render). Sonra **3.5/3.6** release
+altyapısı için.
 
-İki sprint **paralel worktree agent**'larda çalışır:
-* `agent-sprint-3-7-live-sunburst` (worktree branch `sprint/3.7-live-sunburst`)
-* `agent-sprint-3-8-usn-index` (worktree branch `sprint/3.8-usn-index`)
-
-Tamamlanınca ana branch'e ardışık merge — 3.7 önce (daha küçük yüzey
-alanı), sonra 3.8.
+Alternatif: kullanıcı önce beta release hissetmek isterse **3.6 updater**
+yapılabilir (USN index v1 stub haliyle de çalışır, search devre dışı).

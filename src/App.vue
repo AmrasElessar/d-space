@@ -17,6 +17,7 @@ import Onboarding from "./components/Onboarding.vue";
 import UserRulesPanel from "./components/UserRulesPanel.vue";
 import ScanProgress from "./components/ScanProgress.vue";
 import VolumeSidebar from "./components/VolumeSidebar.vue";
+import IndexSearchBar from "./components/IndexSearchBar.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -594,7 +595,18 @@ function handleShortcut(e: KeyboardEvent) {
   // Ctrl+F — Arama (placeholder toggle, gerçek arama v0.2)
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
     e.preventDefault();
-    searchOpen.value = !searchOpen.value;
+    // Sprint 3.8 — Ctrl+F artık IndexSearchBar input'una odaklanır.
+    // `searchOpen` toggle eski v0.1 placeholder davranışı; korunur ama
+    // index input fokusu öncelikli.
+    const input = document.querySelector<HTMLInputElement>(
+      ".index-search-bar input",
+    );
+    if (input) {
+      input.focus();
+      input.select();
+    } else {
+      searchOpen.value = !searchOpen.value;
+    }
     return;
   }
   // Ctrl+? — Kısayol yardımı
@@ -651,6 +663,13 @@ onMounted(async () => {
   } catch (err) {
     console.warn("scan-progress listener kurulamadı", err);
   }
+
+  // Sprint 3.8 (Bölüm 5.6) — USN index baseline build arka planda.
+  // Admin yoksa command "needs_admin" status döner, watcher başlatılmaz.
+  // Hata kullanıcıyı bloklamaz — fire-and-forget.
+  invoke("index_build", { drive: drive.value, force: false }).catch((err) => {
+    console.info("[index] build atlandı:", err);
+  });
 });
 
 onBeforeUnmount(() => {
@@ -815,6 +834,36 @@ async function runPreFlight() {
   } finally {
     preFlighting.value = false;
   }
+}
+
+/// Sprint 3.8 (Bölüm 5.6) — IndexSearchBar'dan gelen tıklama. v0.1: sonucu
+/// `selectedNode` benzeri minimal panele eşle (tam path varsa) + konsola log.
+/// Gerçek breadcrumb navigation (scan tree node id ↔ usn file_ref eşleme)
+/// v0.2'de gelecek; şu an arama → detay panel paylaşımı yeterli.
+interface IndexSearchResult {
+  volume_id: string;
+  file_ref: number;
+  parent_ref: number;
+  name: string;
+  full_path: string | null;
+  attrs: number;
+}
+
+function onIndexResultSelect(r: IndexSearchResult) {
+  console.info("[index] selected:", r.full_path ?? r.name);
+  // Detay paneline minimal pseudo-node bilgisi (scan tree id'si yok).
+  selectedNode.value = {
+    id: -(r.file_ref >>> 0),
+    parent: null,
+    name: r.name,
+    data_size: 0,
+    aggregate_size: 0,
+    is_dir: (r.attrs & 0x10) !== 0,
+    score: null,
+    score_rule: null,
+    score_reason: r.full_path ?? null,
+    modified_unix: 0,
+  };
 }
 
 /// Bölüm 15.1 v0.2 — VolumeSidebar'dan gelen sürücü seçimi. Aktif tarama
@@ -1191,6 +1240,10 @@ async function confirmPermDelete(item: StagedItem) {
 
 <template>
   <div class="app-frame">
+    <IndexSearchBar
+      class="app-search"
+      @update:selected-result="onIndexResultSelect"
+    />
     <VolumeSidebar
       class="app-sidebar"
       :selected="drive"
@@ -2378,6 +2431,7 @@ async function confirmPermDelete(item: StagedItem) {
 .app-frame {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   gap: 16px;
   max-width: 1720px;
   margin: 0 auto;
@@ -2385,9 +2439,17 @@ async function confirmPermDelete(item: StagedItem) {
   align-items: start;
 }
 
+/* Sprint 3.8 — IndexSearchBar üst yapışkan bar, iki kolonu yatayda kaplar. */
+.app-search {
+  grid-column: 1 / -1;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
 .app-sidebar {
   position: sticky;
-  top: 16px;
+  top: 70px;
 }
 
 @media (max-width: 960px) {
