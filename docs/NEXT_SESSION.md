@@ -15,7 +15,11 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 ## 🟢 ŞU AN: v0.1.0-alpha → v0.2.0-beta yolundayım
 
-**Sıradaki 2 sprint** (3.1c tamam — origin'e push'lu):
+**Sıradaki 4 sprint** (3.1c tamam — main'e commit'lendi, push bekliyor):
+
+> **Sıralama kararı (2026-05-16):** 3.7 ve 3.8 önce — kullanıcı deneyimi
+> doğrudan etkili (canlı görsel + Everything benzeri index). 3.5/3.6 release
+> altyapısı, ön kullanıcı geri bildirimi alındıktan sonra eklenir.
 
 ### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar) ✅ TAMAMLANDI (2026-05-16)
 - **Sonuç:** App grid `280px minmax(0, 1fr)` — sticky sol sidebar + akıcı orta workspace; workspace içindeki 2-kolon (SnapshotPanel + DuplicatePanel/Detail) korundu, görsel olarak toplam 3-kolon.
@@ -37,17 +41,66 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 - **Feature gate:** `vss` (default OFF). Default build sıfır etki.
 - **Test:** 9 yeni unit test (hresult mapping, BSTR roundtrip, snapshot_path, pool dedupe, lease drop, reaper eviction + scan integration) — `cargo test --features vss --lib` ile 83/83 geçer.
 
-### Sprint 3.5 — Playwright e2e altyapı
+### Sprint 3.7 — Canlı tarama görseli (Live Sunburst)
+- **Mevcut:** `ScanProgress` overlay sadece sayısal (visited/total + ETA + son path). Sunburst/Treemap ancak tarama bitince render eder.
+- **Hedef (Bölüm 9.6.5 + 15.4):** Tarama sırasında **canlı dolan mini Sunburst** — kullanıcı diski "doluyor" hisseder.
+- **Backend (`src-tauri/`):**
+  - `scan/progress.rs` — `ScanProgress` event'ine yeni alan: `Vec<PartialNode>` (root + ilk 2 seviye, top-200 düğüm, aggregate_size). N=10k entry'de bir partial snapshot serialize edilir.
+  - `scan/tree.rs` — `build_partial_view(tree, max_depth=2, top_n=200)` API. Tree mutex'i altında lightweight clone, sıralama, kısalt.
+  - `scan-progress` event payload kırılma yok — `partial_tree: Option<Vec<PartialNode>>` opsiyonel alan.
+- **Frontend (`src/`):**
+  - `components/LiveSunburst.vue` (yeni, ~250 satır) — D3 transition tabanlı, her event'te wedge'ler büyür, son taranan path'in altındaki klasör highlight olur.
+  - `components/ScanProgress.vue` — sayısal stats sağ tarafta küçülür, sol tarafta `LiveSunburst` 360×360 px.
+  - Overlay arka planı semi-transparent, scroll lock korunur.
+- **Test:** Rust unit (partial tree top-N + depth limit), frontend mount + event-driven update doğrulama.
+- **Boyut tahmini:** ~150 Rust + ~300 Vue/TS + ~80 CSS.
+- **Risk:** Düşük. Backend mevcut event'e alan ekliyor; frontend yeni component, App.vue minimal değişir.
+
+### Sprint 3.8 — USN Journal Index katmanı (Everything modeli)
+- **Mevcut:** Her açılışta full MFT walk gerekir (5 sn).
+- **Hedef (Discovery Log #005, yeni Bölüm 5.6):** Persistent USN index → açılışta < 200 ms load + arka planda incremental delta sync. Search bar substring < 50 ms.
+- **Backend (`src-tauri/`):**
+  - Yeni modül `index/` — `usn.rs` (`FSCTL_ENUM_USN_DATA` + `FSCTL_READ_USN_JOURNAL` köprü), `persist.rs` (SQLite save/load), `delta.rs` (reason mask filter + apply), `watcher.rs` (background thread + batch flush 5 sn).
+  - SQLite migration `0002_usn_index.sql`:
+    ```sql
+    CREATE TABLE usn_index (
+      volume_id TEXT NOT NULL,
+      file_ref INTEGER NOT NULL,
+      parent_ref INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      usn_id INTEGER NOT NULL,
+      last_seen_unix INTEGER NOT NULL,
+      attrs INTEGER NOT NULL,
+      PRIMARY KEY (volume_id, file_ref)
+    );
+    CREATE INDEX idx_usn_name ON usn_index(name);
+    CREATE INDEX idx_usn_parent ON usn_index(volume_id, parent_ref);
+    CREATE TABLE usn_watermark (
+      volume_id TEXT PRIMARY KEY,
+      next_usn INTEGER NOT NULL,
+      journal_id INTEGER NOT NULL
+    );
+    ```
+  - Wraparound tespiti: `journal_id` değişti → full re-enumerate.
+  - Tauri commands: `index_build` (baseline), `index_status`, `index_search(query)`.
+- **Frontend (`src/`):**
+  - `components/IndexSearchBar.vue` (~200 satır) — Ctrl+F yeni davranış: globe search index üzerinde substring, sonuç listesi instant.
+  - `App.vue` — başlangıçta `index_build` arka plan trigger, status badge ("Indexleniyor… %X").
+- **Test:** USN reason mask parse, journal wraparound detection, SQLite roundtrip, search latency benchmark.
+- **Boyut tahmini:** ~600 Rust + ~250 Vue/TS + ~100 SQL.
+- **Risk:** Orta. USN journal admin gerektirir (Hızlı Mod zaten admin); journal disabled fallback path test edilmeli. Wraparound senaryosu unit test ile kapsanmalı.
+
+### Sprint 3.5 — Playwright e2e altyapı (sonra)
 - **Hedef:** `tauri-driver` + `playwright` ile 5 smoke senaryo:
   1. Onboarding akışı (3-slide → mod seç → Başla)
   2. C: taraması başlat → progress overlay → drilldown açılır
   3. Görsel mod değişimi (Ctrl+1/2/3/4)
   4. Sağ panel detayı dolu kalsın (dosya tıkla → detay görünür)
-  5. Staging gönder → undo
+  5. Staging gönder → undo + index search
 - **Agent gerekli:** tauri-driver setup ve ilk Playwright config için research agent.
 - **CI workflow'a ekle:** windows-latest runner üzerinde e2e job.
 
-### Sprint 3.6 — Tauri updater gerçek
+### Sprint 3.6 — Tauri updater gerçek (sonra)
 - **Mevcut:** `tauri.conf.json`'da updater placeholder (`active: false`).
 - **Hedef:** `tauri-plugin-updater` install + Ed25519 keygen + GitHub releases `latest.json` otomasyonu + UI dialog.
 - **Adımlar (RELEASE_CHECKLIST.md §2'den):**
@@ -59,7 +112,7 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
   Private key → GitHub Secret. Public key → `tauri.conf.json`. Release workflow'a `includeUpdaterJson: true` ekle.
 - **Test:** v0.2.0-beta tag çek, eski v0.1.0-alpha kurulumdan auto-update çalıştığını doğrula.
 
-**Kalan 2 sprint (3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
+**Kalan 4 sprint (3.7 + 3.8 + 3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
 
 ---
 
@@ -155,12 +208,20 @@ git tag -l --sort=-creatordate | head -5
 
 ---
 
-## 🚦 Şu anki sprint kararı: **3.6 Tauri updater** (önerilen)
+## 🚦 Aktif sprint kararı: **3.7 + 3.8 paralel** (worktree, agent)
 
-3.1c üç-kolon sidebar tamamlandı (2026-05-16). v0.2.0-beta'ya 2 sprint
-kaldı: **3.5** (Playwright e2e) ve **3.6** (auto-updater). Sıra önerisi:
-önce **3.6** — release pipeline'ı tam donanımlı hale gelir, böylece sonraki
-release'ten itibaren güncellemeler otomatik akar. 3.5 daha sonra eklenebilir
-(her sprint için zorunlu CI gate değil).
+3.1c üç-kolon sidebar tamamlandı (2026-05-16). v0.2.0-beta'ya 4 sprint:
+3.7 (canlı sunburst), 3.8 (USN index), 3.5 (e2e), 3.6 (updater).
 
-Alternatif sıra: **3.5 Playwright e2e** (önce güvenlik ağı, sonra updater).
+**Seçilen sıra (kullanıcı önerisi):** 3.7 ve 3.8 önce — çünkü her ikisi
+de doğrudan kullanıcı deneyimi (görsel + arama hızı). 3.7 ile 3.8 dosya
+çakışması düşük: 3.7 yalnızca `scan/` + `ScanProgress.vue` +
+`LiveSunburst.vue`'a dokunur; 3.8 yalnızca yeni `index/` modülü +
+`IndexSearchBar.vue` + SQLite migration. Ortak: `App.vue` birkaç satır.
+
+İki sprint **paralel worktree agent**'larda çalışır:
+* `agent-sprint-3-7-live-sunburst` (worktree branch `sprint/3.7-live-sunburst`)
+* `agent-sprint-3-8-usn-index` (worktree branch `sprint/3.8-usn-index`)
+
+Tamamlanınca ana branch'e ardışık merge — 3.7 önce (daha küçük yüzey
+alanı), sonra 3.8.
