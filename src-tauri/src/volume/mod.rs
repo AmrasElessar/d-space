@@ -6,8 +6,10 @@
 // kilitli sürücüde Katman A/B/C sonsuz recursive deneme yapmasın diye
 // Katman 0 olarak eklendi (v1.4 race condition kapatma).
 
+pub mod enumerate;
 pub mod preflight;
 
+pub use enumerate::{enumerate_drive_letters, list_drives};
 pub use preflight::pre_flight_check;
 
 use serde::Serialize;

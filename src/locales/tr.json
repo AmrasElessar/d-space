@@ -113,5 +113,34 @@
   },
   "footer": {
     "spec": "Master mimari: D-Space-Mimari-v1.4.docx"
+  },
+  "sidebar": {
+    "title": "Sürücüler",
+    "refresh": "Yenile",
+    "refreshing": "Yenileniyor…",
+    "empty": "Mount edilmiş sürücü bulunamadı.",
+    "loading": "Sürücüler okunuyor…",
+    "error": "Sürücüler okunamadı: {msg}",
+    "free": "{free} boş / {total}",
+    "used": "{used} kullanılıyor",
+    "status": {
+      "Ready": "Hazır",
+      "BitLockerLocked": "BitLocker kilitli",
+      "BitLockerSuspended": "BitLocker askıda",
+      "Encrypted": "Şifreli",
+      "NotMounted": "Mount değil",
+      "AccessDenied": "Erişim reddedildi",
+      "NotFormatted": "Biçimlenmemiş",
+      "UnsupportedDriveType": "Desteklenmiyor"
+    },
+    "kind": {
+      "Fixed": "Sabit",
+      "Removable": "Çıkarılabilir",
+      "Remote": "Ağ",
+      "CdRom": "CD/DVD",
+      "RamDisk": "RAM disk",
+      "Unknown": "Bilinmiyor",
+      "NoRootDir": "Mount değil"
+    }
   }
 }

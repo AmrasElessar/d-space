@@ -16,6 +16,7 @@ import DuplicatePanel from "./components/DuplicatePanel.vue";
 import Onboarding from "./components/Onboarding.vue";
 import UserRulesPanel from "./components/UserRulesPanel.vue";
 import ScanProgress from "./components/ScanProgress.vue";
+import VolumeSidebar from "./components/VolumeSidebar.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -816,6 +817,18 @@ async function runPreFlight() {
   }
 }
 
+/// Bölüm 15.1 v0.2 — VolumeSidebar'dan gelen sürücü seçimi. Aktif tarama
+/// veya kuyruktaki staging durumu varken yeni sürücü tıklamasını kabul
+/// etmiyoruz (kullanıcı kafa karışıklığı). Pre-flight arka planda yenilenir.
+function onSidebarDriveSelect(letter: string) {
+  if (!letter) return;
+  if (scanning.value || walking.value || probing.value) return;
+  if (letter === drive.value) return;
+  drive.value = letter;
+  // Bölüm 33.2 — yeni sürücü için pre-flight (admin gerekmez).
+  void runPreFlight();
+}
+
 async function runProbe() {
   probing.value = true;
   probeError.value = null;
@@ -1177,7 +1190,13 @@ async function confirmPermDelete(item: StagedItem) {
 </script>
 
 <template>
-  <main class="shell">
+  <div class="app-frame">
+    <VolumeSidebar
+      class="app-sidebar"
+      :selected="drive"
+      @update:selected="onSidebarDriveSelect"
+    />
+    <main class="shell">
     <header class="hero">
       <div class="brand">
         <span class="logo-dot"></span>
@@ -2346,17 +2365,49 @@ async function confirmPermDelete(item: StagedItem) {
       <span class="dot">·</span>
       <span>Master mimari: D-Space-Mimari-v1.4.docx</span>
     </footer>
-  </main>
+    </main>
+  </div>
 </template>
 
 <style scoped>
+/* Bölüm 15.1 v0.2 — gerçek üç-kolon workspace.
+   - Sol: VolumeSidebar (sticky, 280px sabit)
+   - Orta: .shell (akıcı, max 1400px)
+   - Sağ: workspace içindeki col-right (snapshot + detail)
+   <960px: sidebar üste kayar, akıcı tek kolon. */
+.app-frame {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1720px;
+  margin: 0 auto;
+  padding: 16px 16px 12px;
+  align-items: start;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 16px;
+}
+
+@media (max-width: 960px) {
+  .app-frame {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+  .app-sidebar {
+    position: static;
+  }
+}
+
 .shell {
   max-width: 1400px;
-  margin: 0 auto;
-  padding: 32px 28px 24px;
+  margin: 0;
+  padding: 16px 12px 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
 }
 
 /* Bölüm 15.1 — iki-kolon workspace (v0.2 ara adım). Üst grup (tara +

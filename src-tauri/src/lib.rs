@@ -36,7 +36,7 @@ use crate::staging::{
     undo_with_resolution, CleanupReport, ConflictResolution, ExpiredItem, PermanentDeleteResult,
     StagedItem, UndoOutcome, WalRecoveryReport,
 };
-use crate::volume::{pre_flight_check, VolumeInfo};
+use crate::volume::{list_drives, pre_flight_check, VolumeInfo};
 use serde::Serialize;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -88,6 +88,16 @@ fn check_privilege() -> PrivilegeStatus {
 #[tauri::command]
 async fn pre_flight_volume(drive: String) -> Result<VolumeInfo> {
     tokio::task::spawn_blocking(move || pre_flight_check(&drive))
+        .await
+        .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
+}
+
+/// Bölüm 33.2 + 15.1 v0.2 — sistemdeki tüm mount edilmiş sürücüler.
+/// `GetLogicalDrives` bitmask → her sürücü için `pre_flight_check`. Sol
+/// VolumeSidebar UI bunu çağırıp drive listesini render eder.
+#[tauri::command]
+async fn list_drives_cmd() -> Result<Vec<VolumeInfo>> {
+    tokio::task::spawn_blocking(list_drives)
         .await
         .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
 }
@@ -632,6 +642,7 @@ pub fn run() {
             get_app_info,
             check_privilege,
             pre_flight_volume,
+            list_drives_cmd,
             probe_volume,
             walk_volume,
             scan_full,

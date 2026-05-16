@@ -113,5 +113,34 @@
   },
   "footer": {
     "spec": "Master design: D-Space-Mimari-v1.4.docx"
+  },
+  "sidebar": {
+    "title": "Drives",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "empty": "No mounted drives found.",
+    "loading": "Reading drives…",
+    "error": "Failed to read drives: {msg}",
+    "free": "{free} free / {total}",
+    "used": "{used} used",
+    "status": {
+      "Ready": "Ready",
+      "BitLockerLocked": "BitLocker locked",
+      "BitLockerSuspended": "BitLocker suspended",
+      "Encrypted": "Encrypted",
+      "NotMounted": "Not mounted",
+      "AccessDenied": "Access denied",
+      "NotFormatted": "Unformatted",
+      "UnsupportedDriveType": "Unsupported"
+    },
+    "kind": {
+      "Fixed": "Fixed",
+      "Removable": "Removable",
+      "Remote": "Network",
+      "CdRom": "CD/DVD",
+      "RamDisk": "RAM disk",
+      "Unknown": "Unknown",
+      "NoRootDir": "Not mounted"
+    }
   }
 }

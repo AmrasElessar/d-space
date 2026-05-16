@@ -2,8 +2,8 @@
 
 # D-Space — Sonraki Oturum Yol Planı
 
-> **Son güncelleme:** 2026-05-15 (Sprint 2H.3 VSS pool tamam, `f87979e`)
-> **Şu anki sürüm:** `v0.1.0-alpha` (tag çekildi, GitHub Release yayında) + Sprint 2H.3 main'de
+> **Son güncelleme:** 2026-05-16 (Sprint 3.1c üç-kolon sidebar tamam)
+> **Şu anki sürüm:** `v0.1.0-alpha` + Sprint 2H.3 (VSS pool) + Sprint 3.1c (3-kolon)
 > **Hedef:** `v0.2.0-beta` → `v0.3.0` → `v1.0.0-stable`
 
 Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
@@ -15,7 +15,18 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 ## 🟢 ŞU AN: v0.1.0-alpha → v0.2.0-beta yolundayım
 
-**Sıradaki 3 sprint** (2H.3 tamam — origin'e push'lu):
+**Sıradaki 2 sprint** (3.1c tamam — origin'e push'lu):
+
+### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar) ✅ TAMAMLANDI (2026-05-16)
+- **Sonuç:** App grid `280px minmax(0, 1fr)` — sticky sol sidebar + akıcı orta workspace; workspace içindeki 2-kolon (SnapshotPanel + DuplicatePanel/Detail) korundu, görsel olarak toplam 3-kolon.
+- **Dosyalar:**
+  - `src-tauri/src/volume/enumerate.rs` (yeni, ~80 satır) — Win32 `GetLogicalDrives` bitmask → `list_drives()` her sürücü için `pre_flight_check`.
+  - `src-tauri/src/lib.rs` — `list_drives_cmd` Tauri command (spawn_blocking).
+  - `src/components/VolumeSidebar.vue` (yeni, ~440 satır) — drive listesi + kullanım barı + status pill + i18n.
+  - `src/App.vue` — `.app-frame` grid wrapper, `onSidebarDriveSelect` handler, drive değişiminde otomatik pre-flight.
+  - `src/locales/{tr,en}.json` — `sidebar.*` anahtarları (refresh/empty/loading/status/kind).
+- **Test:** 6 yeni frontend test (mount IPC, selection, emit, error, empty, usage class) + 2 yeni Rust test (enumerate sıralama, list_drives smoke) → **76 Rust + 16 frontend = 92 test passing**.
+- **Responsive:** `<960px` sidebar üste kayar, akıcı tek kolon.
 
 ### Sprint 2H.3 — VSS pool (Bölüm 34 v0.2) ✅ TAMAMLANDI (2026-05-15, `f87979e`)
 - **Sonuç:** Plan A — `winapi 0.3.9` crate'i `IVssBackupComponents` + factory'yi sağladı, manuel vtable gerekmedi. Discovery Log #002 → çözüldü, #004 yeni revize (`VSS_CTX_FILE_SHARE_BACKUP` writer-less).
@@ -25,16 +36,6 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
   - `src-tauri/src/duplicate/scan.rs` — `hash_file_with_retry` (`ERROR_SHARING_VIOLATION` → VSS reader).
 - **Feature gate:** `vss` (default OFF). Default build sıfır etki.
 - **Test:** 9 yeni unit test (hresult mapping, BSTR roundtrip, snapshot_path, pool dedupe, lease drop, reaper eviction + scan integration) — `cargo test --features vss --lib` ile 83/83 geçer.
-
-### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar)
-- **Mevcut:** 2-kolon workspace (sol SnapshotPanel, sağ Duplicate + Detail). 3. kolon henüz yok.
-- **Hedef:** Sol sidebar volume listesi (C: D: E: ...) + snapshot timeline. CSS grid `280px 1fr 320px`.
-- **Plan:**
-  - `volume::list_drives()` Rust API (Win32 `GetLogicalDrives`)
-  - `VolumeSidebar.vue` komponenti — drive listesi + her birinin pre-flight bilgisi (file_system + free/total + status)
-  - SnapshotPanel sağ kolondan sol kolona taşı (timeline grafik)
-  - DuplicatePanel sağ kolonda kalır + Seçili Öğe alta sticky
-- **Tahmini boyut:** ~300 satır Rust + ~250 satır Vue + ~50 satır CSS
 
 ### Sprint 3.5 — Playwright e2e altyapı
 - **Hedef:** `tauri-driver` + `playwright` ile 5 smoke senaryo:
@@ -58,7 +59,7 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
   Private key → GitHub Secret. Public key → `tauri.conf.json`. Release workflow'a `includeUpdaterJson: true` ekle.
 - **Test:** v0.2.0-beta tag çek, eski v0.1.0-alpha kurulumdan auto-update çalıştığını doğrula.
 
-**Kalan 3 sprint (3.1c + 3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
+**Kalan 2 sprint (3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
 
 ---
 
@@ -141,7 +142,7 @@ git tag -l --sort=-creatordate | head -5
 
 ## 🎯 v1.0 başarı kriterleri
 
-- [ ] 200+ Rust test + 150+ frontend test (şu an 74 default + 9 vss-gated + 10 frontend = 93)
+- [ ] 200+ Rust test + 150+ frontend test (şu an 76 default + 9 vss-gated + 16 frontend = 101)
 - [ ] Tüm 5 pillar v1 kapsamında (şu an alpha düzeyi)
 - [ ] EV cert imzalı MSI + NSIS
 - [ ] SmartScreen reputation kazanılmış
@@ -154,11 +155,12 @@ git tag -l --sort=-creatordate | head -5
 
 ---
 
-## 🚦 Şu anki sprint kararı: **3.1c üç-kolon sidebar** (önerilen)
+## 🚦 Şu anki sprint kararı: **3.6 Tauri updater** (önerilen)
 
-2H.3 VSS pool tamamlandı, `f87979e` commit'i `origin/main`'de. Sıradaki en
-uygun sprint **3.1c**: sol volume sidebar + 3-kolon layout. Düşük risk,
-görsel büyük etkili, kullanıcı geri bildirimi ile birebir alakalı.
+3.1c üç-kolon sidebar tamamlandı (2026-05-16). v0.2.0-beta'ya 2 sprint
+kaldı: **3.5** (Playwright e2e) ve **3.6** (auto-updater). Sıra önerisi:
+önce **3.6** — release pipeline'ı tam donanımlı hale gelir, böylece sonraki
+release'ten itibaren güncellemeler otomatik akar. 3.5 daha sonra eklenebilir
+(her sprint için zorunlu CI gate değil).
 
-Alternatif sıra: **3.6 Tauri updater** (production hazırlığı) veya
-**3.5 Playwright e2e** (test güvenliği).
+Alternatif sıra: **3.5 Playwright e2e** (önce güvenlik ağı, sonra updater).
