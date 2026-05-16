@@ -145,5 +145,13 @@
       "Unknown": "Unknown",
       "NoRootDir": "Not mounted"
     }
+  },
+  "index": {
+    "title": "Quick search",
+    "placeholder": "File name...",
+    "empty": "No results",
+    "indexing": "Indexing… {count} files",
+    "needsAdmin": "Quick search requires admin",
+    "searching": "Searching…"
   }
 }

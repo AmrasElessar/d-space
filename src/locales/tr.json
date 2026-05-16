@@ -145,5 +145,13 @@
       "Unknown": "Bilinmiyor",
       "NoRootDir": "Mount değil"
     }
+  },
+  "index": {
+    "title": "Hızlı arama",
+    "placeholder": "Dosya adı...",
+    "empty": "Sonuç yok",
+    "indexing": "İndeksleniyor… {count} dosya",
+    "needsAdmin": "Hızlı arama yönetici gerektirir",
+    "searching": "Aranıyor…"
   }
 }

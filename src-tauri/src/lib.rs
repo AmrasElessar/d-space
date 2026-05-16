@@ -8,6 +8,7 @@
 pub mod db;
 pub mod duplicate;
 pub mod error;
+pub mod index;
 pub mod locked_file;
 pub mod safe_delete;
 pub mod scan;
@@ -19,6 +20,10 @@ pub mod volume;
 use crate::db::{db_info, get_setting, open_db, set_setting, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::error::{Error, Result};
+use crate::index::{
+    index_search as index_search_db, index_status as index_status_db, IndexSearchResult,
+    IndexStatus,
+};
 use crate::locked_file::{probe_file, LockedFileProbe};
 use crate::safe_delete::{
     add_rule as add_user_rule, delete_rule as delete_user_rule, list_active_snapshots,
@@ -522,6 +527,80 @@ async fn find_duplicates_cmd(
         .map_err(|e| Error::Duplicate(format!("join hatası: {}", e)))?
 }
 
+/// Sprint 3.8 — Discovery #005 / Bölüm 5.6. USN journal index'inden anlık
+/// substring araması. Tüm ciltlerden eşleşen ilk `limit` kaydı döner;
+/// `full_path` opsiyonel olarak parent zinciri ile çözülür (top-N için
+/// yeterli; v0.1 perf hedefi < 50 ms).
+#[tauri::command]
+fn index_search(
+    query: String,
+    limit: Option<usize>,
+    state: tauri::State<'_, DbState>,
+) -> Result<Vec<IndexSearchResult>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    index_search_db(&conn, &query, limit.unwrap_or(50))
+}
+
+/// Sprint 3.8 — Discovery #005. Index durum sorgusu. `drive` opsiyonel:
+/// boş geçildiğinde global sayım dönülür. Admin yoksa `mode="needs_admin"`.
+#[tauri::command]
+fn index_status(drive: Option<String>, state: tauri::State<'_, DbState>) -> Result<IndexStatus> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    let volume_id = drive
+        .as_ref()
+        .and_then(|d| d.chars().find(|c| c.is_ascii_alphabetic()))
+        .map(|c| format!(r"\\.\{}:", c.to_ascii_uppercase()));
+    let mut st = index_status_db(&conn, volume_id.as_deref())?;
+    if !is_elevated() && st.mode == "idle" {
+        // Henüz indeks yok ve admin de yok → UI'a "needs_admin" göster.
+        st.mode = "needs_admin".to_string();
+    }
+    Ok(st)
+}
+
+/// Sprint 3.8 — baseline enumerate başlatıcı. **v0.1 stub**: gerçek
+/// `FSCTL_ENUM_USN_DATA` walker bir sonraki minör revizyona bırakıldı
+/// (Discovery #005 — büyük binary stream + watermark race testleri ayrı
+/// sprint). Şimdilik command yalnız "needs_admin" / "ok" durumunu döner;
+/// UI search bar buna göre placeholder veya disabled badge gösterir.
+#[tauri::command]
+async fn index_build(
+    drive: String,
+    _force: Option<bool>,
+    db_state: tauri::State<'_, DbState>,
+) -> Result<IndexStatus> {
+    if !is_elevated() {
+        let conn = db_state
+            .conn
+            .lock()
+            .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+        let volume_id = drive
+            .chars()
+            .find(|c| c.is_ascii_alphabetic())
+            .map(|c| format!(r"\\.\{}:", c.to_ascii_uppercase()));
+        let mut st = index_status_db(&conn, volume_id.as_deref())?;
+        st.mode = "needs_admin".to_string();
+        return Ok(st);
+    }
+    // TODO(v0.2): FSCTL_ENUM_USN_DATA baseline walker. Şimdilik mevcut
+    // index durumunu dön (idle/ready).
+    let conn = db_state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    let volume_id = drive
+        .chars()
+        .find(|c| c.is_ascii_alphabetic())
+        .map(|c| format!(r"\\.\{}:", c.to_ascii_uppercase()));
+    index_status_db(&conn, volume_id.as_deref())
+}
+
 /// Bölüm 8.6 — iki snapshot ID arasındaki delta (added/removed/grew/shrunk
 /// top-10 + net byte change).
 #[tauri::command]
@@ -674,6 +753,9 @@ pub fn run() {
             delete_user_rule_cmd,
             toggle_user_rule_cmd,
             probe_cloud_state_cmd,
+            index_build,
+            index_status,
+            index_search,
         ])
         .run(tauri::generate_context!())
         .expect("D-Space başlatma hatası");

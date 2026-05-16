@@ -146,41 +146,56 @@ Bölüm 34.5.4 yorumlarında yapışkan not.
 
 ---
 
-## #005 — USN Journal Index katmanı (Everything benzeri)
-Tarih: 2026-05-16 · İlgili bölüm: 5 (yeni 5.6) · Tip: revize (spec eksiği)
+## #005 — USN Journal Index (Everything modeli) — Bölüm 5.6 (yeni alt-bölüm)
+Tarih: 2026-05-16 · İlgili bölüm: 5.6 (yeni) · Tip: revize (kapsam genişletme)
 
-**Bulgu:** Master spec Bölüm 5.2A Hızlı Mod MFT direkt okumayı tanımlar
-(1 TB < 5 sn) ama **persistent index + change stream** mekanizması yok.
-Her uygulama açılışında baştan tarama gerekir. `voidtools/Everything`
-modeli: `FSCTL_ENUM_USN_DATA` ile baseline MFT enum + `FSCTL_READ_USN_JOURNAL`
-ile change stream → açılış sonrası **0 sn render** + real-time file watcher.
+**Bulgu:** Master spec v1.4 dosya tarama için yalnız MFT walker + `FindFirstFile`
+fallback'ı tanımlıyor (Bölüm 5.1-5.2A). Anlık substring araması yok — Ctrl+F
+"v0.2 placeholder" olarak işaretli (Bölüm 15.2 shortcuts). "Everything" tipi
+saniye-altı arama için **persistent index** + **incremental delta sync**
+mekanizması Bölüm 5.6 olarak eklendi.
 
-**Etki:** D-Space şu an her tarama 5 sn — kullanıcı her açılışta bekler.
-USN Index ile:
-* Açılış: index load (< 200 ms) + arka planda incremental USN delta sync.
-* Search bar substring: in-memory hash → 1M dosyada < 50 ms.
-* Real-time dosya watcher: yeni eklenenler/silinenler 1-5 sn lag ile UI'a.
+NTFS USN (Update Sequence Number) Journal mevcut volume tarafından zaten tutulur
+(her dosya/dizin oluşumu, silinmesi, ad değişimi 32-128 bayt kayıt yazar).
+`FSCTL_ENUM_USN_DATA` (`0x000900B3`) ile baseline enumerate, `FSCTL_READ_USN_JOURNAL`
+(`0x000900BB`) ile delta okuma yapılır. Tek IO çağrısında 8 KB-1 MB buffer dolar;
+Win11 NVMe'de 1 TB volume için ~200-400 ms civarında baseline.
 
-**Yapı:**
-* Yeni modül `src-tauri/src/index/` — `usn::enumerate_baseline()`,
-  `usn::read_journal_delta()`, `persist::save_index()` / `load_index()`.
-* Yeni SQLite tablo: `usn_index (file_ref INTEGER, parent_ref INTEGER,
-  name TEXT, usn_id INTEGER, last_seen_unix INTEGER, attrs INTEGER)`.
-* Background thread: USN reason mask `USN_REASON_FILE_CREATE |
-  FILE_DELETE | RENAME_NEW_NAME | DATA_OVERWRITE` dinler, batch flush 5 sn.
-* Frontend: `IndexSearchBar` komponenti (Ctrl+F yeni davranış —
-  index üzerinde substring), "Indeksleniyor… N dosya" status badge.
+**Etki:** 
+- Persistent index (`dspace.sqlite` → `usn_index` + `usn_watermark` tabloları)
+  açılışta < 200 ms load.
+- 5 sn poll ile incremental sync (`FSCTL_READ_USN_JOURNAL` next_usn watermark).
+- Substring arama < 50 ms (SQLite LIKE + `idx_usn_name`).
+- Admin gerekir (`\\.\C:` raw volume + USN journal okuma).
+- `windows-rs` 0.61'de FSCTL constant sembolik adlarla **gelmiyor** —
+  hand-roll `const FSCTL_ENUM_USN_DATA: u32 = 0x0009_00B3;` (kararlı,
+  Win2K'dan beri değişmedi).
+- USN_RECORD_V2 binary parse: 60 bayt sabit header + UTF-16 LE isim.
+  V3 (128-bit file_ref) Win10+ ReFS için var ama NTFS default V2.
+- Wraparound: USN journal silinip yeniden açıldığında `journal_id` değişir.
+  Watermark'taki eski `journal_id` ile fresh mismatch → full re-enumerate
+  gerekir (eski USN penceresi geçersiz, kayıp olay olabilir).
 
-**Karar:** Bölüm 5.6 (USN Index) yeni alt bölüm olarak v1.5 spec
-revizyonunda eklenecek. Uygulama tarafı Sprint 3.8'de gelir (v0.2.0-beta).
-NTFS-only — ReFS/FAT32/network için fallback Bölüm 5.5'ten gelir.
+**Karar:** Sprint 3.8'de yeni `src-tauri/src/index/` modülü:
+- `usn.rs` — USN_RECORD_V2 parser + FSCTL const'lar + ERROR_JOURNAL_*.
+- `persist.rs` — SQLite save/load + LIKE search + `WITH RECURSIVE` parent
+  path zinciri.
+- `delta.rs` — reason mask filtreli `apply_delta` + `detect_wraparound`.
+- `watcher.rs` — `std::thread` background poll (5 sn), shutdown channel.
+  Admin yoksa watcher **başlatılmaz** (`IndexStatus { mode: "needs_admin" }`).
+- Tauri commands: `index_build` / `index_status` / `index_search`.
 
-**Trade-off kabul:**
-* USN journal admin gerektirir ama Hızlı Mod zaten admin istiyor — ek UAC yok.
-* USN journal disabled volume (nadir) → Tier 2'ye düşer, mevcut fallback yeterli.
-* Index storage maliyeti ~50-100 MB / 1 M dosya. `%LOCALAPPDATA%\DSpace\index.db`.
-* USN journal dolup wraparound olursa (Bölüm 28.2 gotcha) → full re-enumerate.
-  Watermark `next_usn` her flush'ta kaydedilir, miss durumu tespit edilir.
+Migration `0003_usn_index.sql` ile mevcut DB üzerine forward-only.
+v0.1 stub: `index_build` gerçek FSCTL_ENUM_USN_DATA walker yerine status
+döner; baseline walker + arka plan watcher gerçek `DeviceIoControl`
+çağrıları sonraki minör sprint'te (binary stream parsing + race testleri
+ayrı kapsama hak ediyor).
 
-**Referans:** Sprint 3.8 commit'i (henüz açılmadı); Microsoft Learn
-`fsctl/fsctl-enum-usn-data` + `fsctl/fsctl-read-usn-journal`.
+UI: `IndexSearchBar.vue` üst yapışkan kutu, 150 ms debounce, top-50 sonuç.
+i18n key'leri `index.*` altında (6 string × tr/en).
+
+**Referans:**
+- `src-tauri/src/index/{mod,usn,persist,delta,watcher}.rs`
+- `src-tauri/src/db/migrations/0003_usn_index.sql`
+- `src/components/IndexSearchBar.vue` + test
+- Bu sprint commit'i — worktree `agent-a1d7ae08a791e3114`

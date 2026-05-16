@@ -33,6 +33,9 @@ pub enum Error {
     #[error("Kilitli dosya: {0}")]
     LockedFile(String),
 
+    #[error("USN index hatası: {0}")]
+    Index(String),
+
     #[error("Henüz uygulanmadı: {0}")]
     NotImplemented(&'static str),
 }
@@ -63,6 +66,7 @@ impl Error {
             Error::Snapshot(_) => "snapshot",
             Error::Duplicate(_) => "duplicate",
             Error::LockedFile(_) => "locked_file",
+            Error::Index(_) => "index",
             Error::NotImplemented(_) => "not_implemented",
         }
     }

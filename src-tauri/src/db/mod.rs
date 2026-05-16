@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 pub const DB_FILENAME: &str = "dspace.sqlite";
 
 /// `%LOCALAPPDATA%\DSpace\db\dspace.sqlite` — Windows.
@@ -37,6 +37,10 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("migrations/0001_initial.sql")),
         M::up(include_str!("migrations/0002_user_rules.sql")),
+        // Sprint 3.8 — Discovery Log #005 (Bölüm 5.6). USN Journal index
+        // tabloları (usn_index + usn_watermark). Mevcut DB üzerinde
+        // forward-only uygulanır.
+        M::up(include_str!("migrations/0003_usn_index.sql")),
     ])
 }
 
@@ -183,7 +187,7 @@ mod tests {
 
         // Tablo sayısı: schema_meta + settings + snapshots + snapshot_entries
         // + staging_items + staging_wal + permanent_deletes_forensic + ml_scores
-        // + user_rules (0002)
+        // + user_rules (0002) + usn_index + usn_watermark (0003)
         let n: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master \
@@ -193,7 +197,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 9, "Migration sonrası 9 tablo bekleniyor");
+        assert_eq!(n, 11, "Migration sonrası 11 tablo bekleniyor");
 
         let spec: String = conn
             .query_row(
