@@ -153,5 +153,21 @@
     "indexing": "Indexing… {count} files",
     "needsAdmin": "Quick search requires admin",
     "searching": "Searching…"
+  },
+  "update": {
+    "check": "Check for updates",
+    "checking": "Checking…",
+    "upToDate": "Up to date — {version}",
+    "available": "New version available: {version}",
+    "currentLine": "Current: {current}",
+    "notes": "Release notes",
+    "install": "Download & install",
+    "installing": "Downloading…",
+    "progress": "{done} / {total} bytes",
+    "restartHint": "The app will restart once installation completes",
+    "dismiss": "Dismiss",
+    "errorVerify": "Signature verification failed — package corrupted or pubkey mismatch",
+    "errorNetwork": "Could not reach server: {msg}",
+    "errorUnknown": "Unexpected error: {msg}"
   }
 }

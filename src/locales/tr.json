@@ -153,5 +153,21 @@
     "indexing": "İndeksleniyor… {count} dosya",
     "needsAdmin": "Hızlı arama yönetici gerektirir",
     "searching": "Aranıyor…"
+  },
+  "update": {
+    "check": "Güncelleme kontrol et",
+    "checking": "Kontrol ediliyor…",
+    "upToDate": "Güncel sürüm — {version}",
+    "available": "Yeni sürüm var: {version}",
+    "currentLine": "Mevcut: {current}",
+    "notes": "Sürüm notları",
+    "install": "İndir ve kur",
+    "installing": "İndiriliyor…",
+    "progress": "{done} / {total} bayt",
+    "restartHint": "Kurulum tamamlandığında uygulama yeniden başlatılacak",
+    "dismiss": "Kapat",
+    "errorVerify": "İmza doğrulanamadı — paket bozulmuş ya da pubkey eşleşmiyor",
+    "errorNetwork": "Sunucuya ulaşılamadı: {msg}",
+    "errorUnknown": "Beklenmedik hata: {msg}"
   }
 }

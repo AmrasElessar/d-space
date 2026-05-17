@@ -61,51 +61,60 @@ Get-AuthenticodeSignature .\D-Space-0.1.0-x64.msi
 
 ---
 
-## 2. Auto-Updater (Bölüm 21.4)
+## 2. Auto-Updater (Bölüm 21.4) — Sprint 3.6 ile etkin
 
-### 2.1 Tauri updater plugin
+### 2.1 Plugin kurulumu ✅ (Sprint 3.6, commit feat(updater))
 
 ```bash
-# v0.2 sprint başlangıcında
-pnpm add @tauri-apps/plugin-updater
-cargo add tauri-plugin-updater --manifest-path src-tauri/Cargo.toml
+# Bir kez yapıldı, manifest'lere yapışmış durumda:
+pnpm add @tauri-apps/plugin-updater @tauri-apps/plugin-process
+cargo add tauri-plugin-updater tauri-plugin-process --manifest-path src-tauri/Cargo.toml
 ```
 
-`src-tauri/src/lib.rs` setup hook'a:
+`src-tauri/src/lib.rs` build hook'a `tauri_plugin_updater::Builder::new().build()` +
+`tauri_plugin_process::init()` zaten ekli. Capability dosyasında
+`updater:default` + `process:default` izinleri açık.
 
-```rust
-.plugin(tauri_plugin_updater::Builder::new().build())
-```
-
-### 2.2 Ed25519 key gen
+### 2.2 Ed25519 key gen — **maintainer'ın yapması gereken son adım**
 
 ```bash
 # Tek seferlik, lokal makinede:
 pnpm tauri signer generate -w ~/.dspace/updater-private.key
-# Public key tauri.conf.json'a, private key GitHub Secret olarak saklanır
+# 1) Public key çıktısını kopyala → src-tauri/tauri.conf.json
+#    plugins.updater.pubkey alanına yapıştır
+# 2) Private key içeriğini GitHub Secret olarak ekle:
+#    Settings → Secrets and variables → Actions:
+#      TAURI_SIGNING_PRIVATE_KEY          ← private key dosya içeriği
+#      TAURI_SIGNING_PRIVATE_KEY_PASSWORD ← keygen sırasında girilen şifre
+# 3) Bu adım yapılmadan ilk v0.2 tag'i atılırsa: imzasız bundle çıkar,
+#    istemci `signature verification failed` raporlar (UI'da
+#    "İmza doğrulanamadı" mesajı).
 ```
 
-### 2.3 tauri.conf.json plugins.updater
+**Mevcut placeholder pubkey:** `tauri.conf.json`'da `REPLACE_BEFORE_RELEASE`
+işaretli geçici Ed25519 değeri var. v0.2.0-beta tag'inden önce maintainer
+bunu gerçek pubkey ile değiştirmeli.
+
+### 2.3 tauri.conf.json plugins.updater (mevcut)
 
 ```jsonc
 {
   "plugins": {
     "updater": {
-      "active": true,
       "endpoints": [
         "https://github.com/AmrasElessar/d-space/releases/latest/download/latest.json"
       ],
-      "dialog": true,
-      "pubkey": "<Ed25519 public key — `tauri signer generate` çıktısından>"
+      "pubkey": "<v0.2 öncesi: pnpm tauri signer generate çıktısı>",
+      "windows": { "installMode": "passive" }
     }
   }
 }
 ```
 
-### 2.4 latest.json formatı
+### 2.4 latest.json (otomatik)
 
-`tauri-action` her release ile `latest.json` üretebilir (`includeUpdaterJson: true`).
-Format:
+`tauri-action` release workflow'da `includeUpdaterJson: true` aktif —
+her release'e şu formatta `latest.json` ekler:
 
 ```json
 {
@@ -121,10 +130,23 @@ Format:
 }
 ```
 
-### 2.5 Kanal stratejisi
+İstemci `tauri.conf.json` endpoint'inden son JSON'u indirir, signature
+pubkey ile doğrular, kullanıcıya UpdateNotification modal'ı gösterir,
+"İndir ve kur" → `downloadAndInstall` + `relaunch()`.
+
+### 2.5 UI akışı (`src/components/UpdateNotification.vue`)
+
+Header'da küçük "⤓ Güncelleme kontrol et" butonu. Tıklayınca:
+* Güncelleme yok → "✔ Güncel sürüm"
+* Güncelleme var → modal: yeni sürüm + notlar + "İndir ve kur" / "Kapat"
+* İndirme sırasında progress bar (event.Started.contentLength →
+  event.Progress.chunkLength toplamı)
+* İmza/ağ/diğer hatalar i18n'li mesaja çevrilir (`update.errorVerify` vb.)
+
+### 2.6 Kanal stratejisi (v1.0+)
 
 * **Stable** — varsayılan endpoint, GA sürümler
-* **Beta** — `pre-release: true` GitHub releases
+* **Beta** — `pre-release: true` GitHub releases (şu an v0.2.0-beta burada)
 * **Nightly** — günlük build, ayrı feed (v1.0)
 
 Kullanıcı kanal seçimi `settings.update_channel`.

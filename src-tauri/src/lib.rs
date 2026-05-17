@@ -721,6 +721,8 @@ pub fn run() {
         .manage(db_state)
         .manage(ScanTreeState::default())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             build_tray(app)?;
             Ok(())

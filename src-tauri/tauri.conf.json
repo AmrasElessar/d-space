@@ -45,12 +45,15 @@
     ]
   },
   "plugins": {
-    "//": "Bölüm 21.4 — Tauri auto-updater placeholder. v0.2 sprint'inde 'active: true' yapılır + Ed25519 pubkey + GitHub releases latest.json endpoint'i bağlanır. Detaylar: docs/RELEASE_CHECKLIST.md §2.",
+    "//": "Bölüm 21.4 — Tauri auto-updater. Sprint 3.6 (v0.2.0-beta). Endpoint GitHub releases latest.json'u işaret eder; release workflow `includeUpdaterJson: true` ile bu dosyayı üretir. Ed25519 pubkey ilk gerçek beta'dan önce maintainer tarafından üretilir (`pnpm tauri signer generate -w ~/.dspace/updater-private.key`) ve aşağı yapıştırılır. Bu sürümde placeholder — manuel `check_for_update` çağrısı pubkey eşleşmezse hata döner, kullanıcıya 'imza doğrulanamadı' mesajı görünür. Detaylar: docs/RELEASE_CHECKLIST.md §2.",
     "updater": {
-      "active": false,
-      "endpoints": [],
-      "dialog": true,
-      "pubkey": ""
+      "endpoints": [
+        "https://github.com/AmrasElessar/d-space/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IFJFUExBQ0VfQkVGT1JFX1JFTEVBU0UKUldRPQ==",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

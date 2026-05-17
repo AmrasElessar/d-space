@@ -11,8 +11,12 @@
 # Bölüm 21'den v0.2'ye ertelenenler:
 #   * Kod imzalama (EV/OV certificate) — Bölüm 18.2
 #   * ARM64 build matrisi — Bölüm 21.1 faz 2
-#   * Auto-updater feed (Tauri updater) — Bölüm 21.4
 #   * winget / Scoop publish — Bölüm 21.3
+#
+# Sprint 3.6 (v0.2.0-beta) ile etkin: Tauri auto-updater feed. tauri-action
+# `includeUpdaterJson: true` ile `latest.json` üretir; GitHub release'in
+# son sürümüne otomatik yapışır. İmza için `TAURI_SIGNING_PRIVATE_KEY` ve
+# `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub Secrets'tan beslenir.
 #
 # İlk release alpha: imzasız → Windows SmartScreen "publisher unknown"
 # diyebilir. Kullanıcı uyarısı README'de.
@@ -64,6 +68,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Bölüm 21.4 — Tauri updater Ed25519 imzalama. Maintainer'ın
+          # `pnpm tauri signer generate` ile ürettiği private key GitHub
+          # Secrets'a (`TAURI_SIGNING_PRIVATE_KEY`) konur; password ayrı
+          # Secret. Public key `tauri.conf.json`'da. Secrets eksikse
+          # tauri-action imzasız bundle üretir + latest.json'da signature
+          # alanı boş kalır → istemci `signature verification failed`.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "D-Space ${{ github.ref_name }}"
@@ -76,11 +88,14 @@ jobs:
             **Spec:** D-Space-Mimari-v1.4.docx (Bölüm 28 Discovery Log canlı)
             **Hedef:** Windows 10 1809+ / Windows 11
 
-            Bu sürüm alpha kanalında, imzasız bir build. Windows SmartScreen
-            "yayıncı bilinmiyor" uyarısı verebilir — kod imzalama Bölüm 18.2
-            v0.2 sprint'inde.
+            Bu sürüm v0.2.0-beta kanalında, henüz EV cert ile imzalanmamış
+            bir build (Bölüm 18.2 stable hedefi). SmartScreen "yayıncı
+            bilinmiyor" uyarısı verebilir. Auto-updater (Tauri plugin-updater)
+            etkin — yeni sürümler imza eşleştikten sonra otomatik kurulur.
 
             Geri bildirim: GitHub Issues.
           releaseDraft: false
           prerelease: true
-          includeUpdaterJson: false
+          # Sprint 3.6 — latest.json üretilir; istemci tauri.conf.json'daki
+          # endpoint üzerinden son sürümü doğrular + indirir.
+          includeUpdaterJson: true

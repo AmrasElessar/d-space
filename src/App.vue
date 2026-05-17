@@ -18,6 +18,7 @@ import UserRulesPanel from "./components/UserRulesPanel.vue";
 import ScanProgress from "./components/ScanProgress.vue";
 import VolumeSidebar from "./components/VolumeSidebar.vue";
 import IndexSearchBar from "./components/IndexSearchBar.vue";
+import UpdateNotification from "./components/UpdateNotification.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -1300,6 +1301,7 @@ async function confirmPermDelete(item: StagedItem) {
                 : t("header.themeLight")
           }}
         </button>
+        <UpdateNotification />
       </div>
       <p class="tagline">{{ t("app.tagline") }}</p>
 
