@@ -189,6 +189,7 @@
     "error": "Sürücüler okunamadı: {msg}",
     "free": "{free} boş / {total}",
     "used": "{used} kullanılıyor",
+    "hwTypicalRead": "Bus tipinden tahmini okuma hızı (gerçek benchmark değil)",
     "status": {
       "Ready": "Hazır",
       "BitLockerLocked": "BitLocker kilitli",

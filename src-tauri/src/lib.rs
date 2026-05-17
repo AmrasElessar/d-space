@@ -41,7 +41,9 @@ use crate::staging::{
     undo_with_resolution, CleanupReport, ConflictResolution, ExpiredItem, PermanentDeleteResult,
     StagedItem, UndoOutcome, WalRecoveryReport,
 };
-use crate::volume::{list_drives, pre_flight_check, VolumeInfo};
+use crate::volume::{
+    list_drives, pre_flight_check, probe_drive_hardware, DriveHardware, VolumeInfo,
+};
 use serde::Serialize;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -103,6 +105,20 @@ async fn pre_flight_volume(drive: String) -> Result<VolumeInfo> {
 #[tauri::command]
 async fn list_drives_cmd() -> Result<Vec<VolumeInfo>> {
     tokio::task::spawn_blocking(list_drives)
+        .await
+        .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
+}
+
+/// Bir sürücünün donanım profilini döner: bus tipi (NVMe/SATA/USB),
+/// medya tipi (SSD/HDD), üretici, model, seri, tipik okuma hızı.
+/// Win32 `IOCTL_STORAGE_QUERY_PROPERTY` kullanılır; admin gerekmez.
+#[tauri::command]
+async fn probe_drive_hardware_cmd(drive: String) -> Result<DriveHardware> {
+    let letter = drive
+        .chars()
+        .find(|c| c.is_ascii_alphabetic())
+        .ok_or_else(|| Error::Volume(format!("geçersiz drive: {}", drive)))?;
+    tokio::task::spawn_blocking(move || probe_drive_hardware(letter))
         .await
         .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
 }
@@ -732,6 +748,7 @@ pub fn run() {
             check_privilege,
             pre_flight_volume,
             list_drives_cmd,
+            probe_drive_hardware_cmd,
             probe_volume,
             walk_volume,
             scan_full,

@@ -189,6 +189,7 @@
     "error": "Failed to read drives: {msg}",
     "free": "{free} free / {total}",
     "used": "{used} used",
+    "hwTypicalRead": "Typical read speed from bus type (not a real benchmark)",
     "status": {
       "Ready": "Ready",
       "BitLockerLocked": "BitLocker locked",

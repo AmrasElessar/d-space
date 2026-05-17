@@ -52,6 +52,19 @@ interface DspaceError {
   message: string;
 }
 
+interface DriveHardware {
+  drive_letter: string;
+  vendor: string | null;
+  product: string | null;
+  serial: string | null;
+  bus_label: string;
+  media_label: string;
+  is_ssd: boolean;
+  removable: boolean;
+  typical_read_mbps: number;
+  summary: string;
+}
+
 const props = defineProps<{
   selected: string;
 }>();
@@ -65,6 +78,10 @@ const { t } = useI18n();
 const drives = ref<VolumeInfo[]>([]);
 const loading = ref<boolean>(false);
 const error = ref<string | null>(null);
+// Drive harfi → donanım profili. Aynı sürücü için tekrar sormamak için
+// session ömrü boyunca cache (sürücü değiştirilince invalidate yok —
+// refresh tuşu ile sıfırlanır).
+const hardwareByDrive = ref<Map<string, DriveHardware>>(new Map());
 
 function formatIpcError(err: unknown): string {
   if (typeof err === "object" && err && "message" in err) {
@@ -155,13 +172,47 @@ const selectedLetter = computed(() => props.selected.toUpperCase().slice(0, 1));
 async function refresh() {
   loading.value = true;
   error.value = null;
+  hardwareByDrive.value = new Map();
   try {
     drives.value = await invoke<VolumeInfo[]>("list_drives_cmd");
+    // Her sürücü için donanım profilini paralel sor — başarısız olanları
+    // sessizce atla (sidebar render'ını bloke etme).
+    void probeAllHardware();
   } catch (err) {
     error.value = formatIpcError(err);
   } finally {
     loading.value = false;
   }
+}
+
+async function probeAllHardware() {
+  const probes = drives.value
+    .filter(
+      (d) =>
+        d.drive_kind === "Fixed" ||
+        d.drive_kind === "Removable" ||
+        d.drive_kind === "Remote",
+    )
+    .map(async (info) => {
+      const letter = letterOf(info);
+      if (!letter) return;
+      try {
+        const hw = await invoke<DriveHardware>("probe_drive_hardware_cmd", {
+          drive: letter,
+        });
+        const next = new Map(hardwareByDrive.value);
+        next.set(letter, hw);
+        hardwareByDrive.value = next;
+      } catch (_err) {
+        // sessizce atla — bazı sürücüler (BitLocker locked, CD-ROM,
+        // network share) IOCTL'ye cevap vermez.
+      }
+    });
+  await Promise.allSettled(probes);
+}
+
+function hardwareOf(info: VolumeInfo): DriveHardware | undefined {
+  return hardwareByDrive.value.get(letterOf(info));
 }
 
 function selectDrive(info: VolumeInfo) {
@@ -266,6 +317,36 @@ defineExpose({ refresh });
             {{ info.file_system }}
           </span>
           <span class="drive-kind">{{ kindLabel(info.drive_kind) }}</span>
+        </div>
+
+        <!-- Donanım profili — bus/medya rozeti + üretici/model + hız. -->
+        <div v-if="hardwareOf(info)" class="drive-hw">
+          <div class="hw-row">
+            <span
+              class="hw-badge"
+              :class="hardwareOf(info)!.is_ssd ? 'hw-ssd' : 'hw-hdd'"
+            >
+              {{ hardwareOf(info)!.bus_label }} {{ hardwareOf(info)!.media_label }}
+            </span>
+            <span
+              v-if="hardwareOf(info)!.typical_read_mbps > 0"
+              class="hw-speed mono"
+              :title="t('sidebar.hwTypicalRead')"
+            >
+              ~{{ hardwareOf(info)!.typical_read_mbps }} MB/sn
+            </span>
+          </div>
+          <div
+            v-if="hardwareOf(info)!.vendor || hardwareOf(info)!.product"
+            class="hw-model"
+            :title="hardwareOf(info)!.summary"
+          >
+            {{
+              [hardwareOf(info)!.vendor, hardwareOf(info)!.product]
+                .filter(Boolean)
+                .join(" ")
+            }}
+          </div>
         </div>
       </li>
     </ul>
@@ -378,8 +459,8 @@ defineExpose({ refresh });
 
 .drive-row-selected {
   border-color: #24c8db;
-  background: #1f6f7c22;
-  box-shadow: 0 0 0 1px #24c8db66 inset;
+  background: rgba(36, 200, 219, 0.12);
+  box-shadow: 0 0 0 1px rgba(36, 200, 219, 0.4) inset;
 }
 
 .drive-head {
@@ -420,21 +501,42 @@ defineExpose({ refresh });
 }
 
 .status-pill.status-ok {
-  border-color: #16653466;
-  background: #16653422;
-  color: #86efac;
+  border-color: rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
 }
 
 .status-pill.status-locked {
-  border-color: #78350f66;
-  background: #78350f22;
-  color: #fcd34d;
+  border-color: rgba(217, 119, 6, 0.55);
+  background: rgba(217, 119, 6, 0.16);
+  color: #b45309;
 }
 
 .status-pill.status-warn {
-  border-color: #7f1d1d66;
-  background: #7f1d1d22;
+  border-color: rgba(220, 38, 38, 0.55);
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+}
+
+:root:not([data-theme="light"]) .status-pill.status-ok {
+  color: #86efac;
+}
+:root:not([data-theme="light"]) .status-pill.status-locked {
+  color: #fcd34d;
+}
+:root:not([data-theme="light"]) .status-pill.status-warn {
   color: #fca5a5;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .status-pill.status-ok {
+    color: #15803d;
+  }
+  :root:not([data-theme]) .status-pill.status-locked {
+    color: #b45309;
+  }
+  :root:not([data-theme]) .status-pill.status-warn {
+    color: #b91c1c;
+  }
 }
 
 .drive-usage {
@@ -485,6 +587,71 @@ defineExpose({ refresh });
 .drive-fs {
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* Donanım profili rozetleri — bus/medya tipi + üretici/model + hız. */
+.drive-hw {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+.hw-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hw-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid;
+}
+
+.hw-ssd {
+  background: rgba(99, 102, 241, 0.16);
+  color: #4338ca;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.hw-hdd {
+  background: rgba(120, 113, 108, 0.18);
+  color: #57534e;
+  border-color: rgba(120, 113, 108, 0.5);
+}
+
+:root:not([data-theme="light"]) .hw-ssd {
+  color: #a5b4fc;
+}
+:root:not([data-theme="light"]) .hw-hdd {
+  color: #d6d3d1;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .hw-ssd {
+    color: #4338ca;
+  }
+  :root:not([data-theme]) .hw-hdd {
+    color: #57534e;
+  }
+}
+
+.hw-speed {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.hw-model {
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mono {

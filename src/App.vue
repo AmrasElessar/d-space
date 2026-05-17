@@ -2682,9 +2682,14 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .adv-toggle-active {
-  background: #1f6f7c33;
-  border-color: #2a8a99;
-  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #2563eb;
+  font-weight: 600;
+}
+
+:root[data-theme="light"] .adv-toggle-active {
+  color: #1d4ed8;
 }
 
 .badge-group {
@@ -2709,22 +2714,47 @@ async function confirmPermDelete(item: StagedItem) {
   color: var(--fg);
 }
 
+/* Badge ve pill renk paleti — light/dark her iki temada okunabilir
+   mid-tone'lar. Background tint ~%18, border ~%50, text saturated
+   ana renk. */
 .badge-blue {
-  border-color: #1e3a8a66;
-  background: #1e3a8a22;
-  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.14);
+  color: #2563eb;
 }
 
 .badge-warn {
-  border-color: #78350f66;
-  background: #78350f22;
-  color: #fcd34d;
+  border-color: rgba(217, 119, 6, 0.5);
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
 }
 
 .badge-amber {
-  border-color: #14532d66;
-  background: #14532d22;
-  color: #6ee7b7;
+  border-color: rgba(22, 163, 74, 0.5);
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
+}
+
+/* Dark temada text'lerin biraz daha açık tonu — dark bg üzerinde okunaklı. */
+:root:not([data-theme="light"]) .badge-blue {
+  color: #60a5fa;
+}
+:root:not([data-theme="light"]) .badge-warn {
+  color: #fbbf24;
+}
+:root:not([data-theme="light"]) .badge-amber {
+  color: #4ade80;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .badge-blue {
+    color: #2563eb;
+  }
+  :root:not([data-theme]) .badge-warn {
+    color: #b45309;
+  }
+  :root:not([data-theme]) .badge-amber {
+    color: #15803d;
+  }
 }
 
 .badge-ghost {
@@ -2924,21 +2954,42 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .pill-frozen {
-  background: #1e3a8a33;
-  color: #93c5fd;
-  border: 1px solid #1e3a8a66;
+  background: rgba(59, 130, 246, 0.16);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.5);
 }
 
 .pill-ok {
-  background: #14532d33;
-  color: #6ee7b7;
-  border: 1px solid #14532d66;
+  background: rgba(22, 163, 74, 0.16);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.5);
 }
 
 .pill-warn {
-  background: #78350f33;
+  background: rgba(217, 119, 6, 0.18);
+  color: #b45309;
+  border: 1px solid rgba(217, 119, 6, 0.55);
+}
+
+:root:not([data-theme="light"]) .pill-frozen {
+  color: #93c5fd;
+}
+:root:not([data-theme="light"]) .pill-ok {
+  color: #6ee7b7;
+}
+:root:not([data-theme="light"]) .pill-warn {
   color: #fcd34d;
-  border: 1px solid #78350f66;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .pill-frozen {
+    color: #1d4ed8;
+  }
+  :root:not([data-theme]) .pill-ok {
+    color: #15803d;
+  }
+  :root:not([data-theme]) .pill-warn {
+    color: #b45309;
+  }
 }
 
 .probe-bar {
@@ -3244,21 +3295,42 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .lock-free {
-  background: #14532d33;
-  color: #6ee7b7;
-  border: 1px solid #14532d80;
+  background: rgba(22, 163, 74, 0.16);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.55);
 }
 
 .lock-busy {
-  background: #7f1d1d33;
-  color: #fca5a5;
-  border: 1px solid #7f1d1d80;
+  background: rgba(220, 38, 38, 0.16);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.55);
 }
 
 .lock-warn {
-  background: #78350f33;
+  background: rgba(217, 119, 6, 0.18);
+  color: #b45309;
+  border: 1px solid rgba(217, 119, 6, 0.55);
+}
+
+:root:not([data-theme="light"]) .lock-free {
+  color: #6ee7b7;
+}
+:root:not([data-theme="light"]) .lock-busy {
+  color: #fca5a5;
+}
+:root:not([data-theme="light"]) .lock-warn {
   color: #fcd34d;
-  border: 1px solid #78350f80;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .lock-free {
+    color: #15803d;
+  }
+  :root:not([data-theme]) .lock-busy {
+    color: #b91c1c;
+  }
+  :root:not([data-theme]) .lock-warn {
+    color: #b45309;
+  }
 }
 
 .lock-action {
@@ -3660,15 +3732,30 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .tier-normal {
-  background: #14171c;
-  color: #6ee7b7;
-  border: 1px solid #14532d66;
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.5);
 }
 
 .tier-cross {
-  background: #1e3a8a33;
+  background: rgba(59, 130, 246, 0.16);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.55);
+}
+
+:root:not([data-theme="light"]) .tier-normal {
+  color: #6ee7b7;
+}
+:root:not([data-theme="light"]) .tier-cross {
   color: #93c5fd;
-  border: 1px solid #1e3a8a;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .tier-normal {
+    color: #15803d;
+  }
+  :root:not([data-theme]) .tier-cross {
+    color: #1d4ed8;
+  }
 }
 
 .staging-icon {
@@ -3685,7 +3772,8 @@ async function confirmPermDelete(item: StagedItem) {
 
 .staging-size {
   text-align: right;
-  color: #6ee7b7;
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .staging-time {
@@ -3706,27 +3794,54 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .score-danger {
-  background: #7f1d1d33;
-  color: #fca5a5;
-  border: 1px solid #7f1d1d80;
+  background: rgba(220, 38, 38, 0.16);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.55);
 }
 
 .score-caution {
-  background: #78350f33;
-  color: #fcd34d;
-  border: 1px solid #78350f80;
+  background: rgba(217, 119, 6, 0.18);
+  color: #b45309;
+  border: 1px solid rgba(217, 119, 6, 0.55);
 }
 
 .score-likely {
-  background: #14532d33;
-  color: #6ee7b7;
-  border: 1px solid #14532d80;
+  background: rgba(22, 163, 74, 0.16);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.55);
 }
 
 .score-cache {
-  background: #1e3a8a33;
+  background: rgba(59, 130, 246, 0.16);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.55);
+}
+
+:root:not([data-theme="light"]) .score-danger {
+  color: #fca5a5;
+}
+:root:not([data-theme="light"]) .score-caution {
+  color: #fcd34d;
+}
+:root:not([data-theme="light"]) .score-likely {
+  color: #6ee7b7;
+}
+:root:not([data-theme="light"]) .score-cache {
   color: #93c5fd;
-  border: 1px solid #1e3a8a80;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .score-danger {
+    color: #b91c1c;
+  }
+  :root:not([data-theme]) .score-caution {
+    color: #b45309;
+  }
+  :root:not([data-theme]) .score-likely {
+    color: #15803d;
+  }
+  :root:not([data-theme]) .score-cache {
+    color: #1d4ed8;
+  }
 }
 
 .score-none {

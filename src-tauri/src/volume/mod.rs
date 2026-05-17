@@ -7,9 +7,11 @@
 // Katman 0 olarak eklendi (v1.4 race condition kapatma).
 
 pub mod enumerate;
+pub mod hardware;
 pub mod preflight;
 
 pub use enumerate::{enumerate_drive_letters, list_drives};
+pub use hardware::{probe_drive_hardware, DriveHardware};
 pub use preflight::pre_flight_check;
 
 use serde::Serialize;
