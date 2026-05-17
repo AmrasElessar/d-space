@@ -279,8 +279,8 @@ defineExpose({ refresh });
   gap: 12px;
   padding: 14px 12px;
   border-radius: 10px;
-  background: var(--card-bg, #0f1722);
-  border: 1px solid var(--border, #1f2a3a);
+  background: var(--surface);
+  border: 1px solid var(--border);
   position: sticky;
   top: 16px;
   align-self: start;
@@ -299,14 +299,14 @@ defineExpose({ refresh });
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--muted, #94a3b8);
+  color: var(--muted);
   margin: 0;
 }
 
 .refresh-btn {
   background: transparent;
-  border: 1px solid var(--border, #1f2a3a);
-  color: var(--muted, #94a3b8);
+  border: 1px solid var(--border);
+  color: var(--muted);
   width: 26px;
   height: 26px;
   border-radius: 6px;
@@ -317,8 +317,8 @@ defineExpose({ refresh });
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: var(--bg, #0a121d);
-  color: var(--fg, #e2e8f0);
+  background: var(--bg);
+  color: var(--fg);
   border-color: #2a8a99;
 }
 
@@ -328,14 +328,14 @@ defineExpose({ refresh });
 }
 
 .sidebar-status {
-  color: var(--muted, #94a3b8);
+  color: var(--muted);
   font-size: 12px;
   text-align: center;
   margin: 12px 0;
 }
 
 .sidebar-err {
-  color: var(--err, #fca5a5);
+  color: var(--err, #ef4444);
   font-size: 11px;
   margin: 8px 0;
   word-break: break-word;
@@ -356,8 +356,8 @@ defineExpose({ refresh });
   gap: 6px;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid var(--border, #1f2a3a);
-  background: var(--bg, #0a121d);
+  border: 1px solid var(--border);
+  background: var(--bg);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.05s;
   outline: none;
@@ -396,13 +396,13 @@ defineExpose({ refresh });
 .drive-letter {
   font-weight: 600;
   font-size: 14px;
-  color: var(--fg, #e2e8f0);
+  color: var(--fg);
 }
 
 .drive-label {
   flex: 1;
   font-size: 12px;
-  color: var(--fg, #e2e8f0);
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -414,8 +414,8 @@ defineExpose({ refresh });
   padding: 2px 6px;
   border-radius: 999px;
   letter-spacing: 0.04em;
-  border: 1px solid var(--border, #1f2a3a);
-  background: var(--bg, #0a121d);
+  border: 1px solid var(--border);
+  background: var(--bg);
   white-space: nowrap;
 }
 
@@ -447,7 +447,7 @@ defineExpose({ refresh });
   width: 100%;
   height: 5px;
   border-radius: 3px;
-  background: var(--border, #1f2a3a);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -471,7 +471,7 @@ defineExpose({ refresh });
 
 .usage-meta {
   font-size: 10px;
-  color: var(--muted, #94a3b8);
+  color: var(--muted);
 }
 
 .drive-foot {
@@ -479,7 +479,7 @@ defineExpose({ refresh });
   justify-content: space-between;
   gap: 6px;
   font-size: 10px;
-  color: var(--muted, #94a3b8);
+  color: var(--muted);
 }
 
 .drive-fs {

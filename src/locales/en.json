@@ -23,12 +23,28 @@
   },
   "scan": {
     "title": "Full Scan",
+    "intro": "Scans the selected drive from the root down to every file. In Fast Mode, 1 TB ≈ 5 sec (admin required); Standard Mode works everywhere. Results open in the visual map on the right.",
     "driveAria": "Drive letter",
     "buttonIdle": "Scan: {drive}:",
     "buttonBusy": "Scanning {drive}…"
   },
   "scanProgress": {
-    "liveEmpty": "Waiting for first results…"
+    "liveEmpty": "Waiting for first results…",
+    "logTitle": "Now scanning",
+    "scanning": "Starting scan…"
+  },
+  "scanPhase": {
+    "preparing": "Preparing…",
+    "mft": "Reading MFT (Fast Mode)",
+    "fallback": "Walking folders (Standard Mode)",
+    "done": "Scan complete"
+  },
+  "scanStats": {
+    "scanned": "Scanned",
+    "estimated": "Estimated",
+    "speed": "Speed",
+    "elapsed": "Elapsed",
+    "remaining": "Remaining"
   },
   "drilldown": {
     "title": "Folder View",
@@ -61,6 +77,22 @@
     "tierNormal": "Same disk",
     "tierCrossTitle": "Across-disk move — integrity-checked and atomic",
     "tierNormalTitle": "Same-disk instant rename"
+  },
+  "snapshot": {
+    "title": "Time Machine",
+    "intro": "After a scan, capture the current state with 📸. Subsequent scans show comparative deltas — which folders grew/shrunk, what was added/removed.",
+    "snap": "📸 Capture snapshot",
+    "snapBusy": "Capturing…",
+    "empty": "No snapshots yet. After a scan, hit 📸 to capture — daily growth/shrink delta comes from here.",
+    "compareBtn": "Compare two snapshots"
+  },
+  "duplicate": {
+    "title": "Duplicate Files",
+    "intro": "Finds files with identical content (Blake3 hash match). Run a scan first, then pick a minimum size filter here to see reclaimable disk space.",
+    "needsScan": "Run a full scan first. Identical files are detected via size + hash match; the actual reclaimable space is reported here.",
+    "minSize": "Min size",
+    "scan": "Scan",
+    "scanBusy": "Scanning…"
   },
   "detail": {
     "title": "Selected Item",

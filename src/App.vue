@@ -19,6 +19,7 @@ import ScanProgress from "./components/ScanProgress.vue";
 import VolumeSidebar from "./components/VolumeSidebar.vue";
 import IndexSearchBar from "./components/IndexSearchBar.vue";
 import UpdateNotification from "./components/UpdateNotification.vue";
+import InfoButton from "./components/InfoButton.vue";
 
 type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
 
@@ -1566,7 +1567,10 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section class="card">
-      <h2>{{ t("scan.title") }}</h2>
+      <h2>
+        {{ t("scan.title") }}
+        <InfoButton :text="t('scan.intro')" />
+      </h2>
       <div class="probe-bar">
         <input
           v-model="drive"
@@ -1645,8 +1649,10 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section v-if="viewWindow" class="card">
-      <h2>{{ t("drilldown.title") }}</h2>
-      <p class="section-intro">{{ t("drilldown.intro") }}</p>
+      <h2>
+        {{ t("drilldown.title") }}
+        <InfoButton :text="t('drilldown.intro')" />
+      </h2>
 
       <div class="view-mode-bar">
         <span class="view-mode-label">{{ t("drilldown.viewMode") }}</span>
@@ -1919,9 +1925,10 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section class="card">
-      <h2>{{ t("staging.title") }}</h2>
-      <p class="section-subtitle">{{ t("staging.subtitle") }}</p>
-      <p class="section-intro">{{ t("staging.intro") }}</p>
+      <h2>
+        {{ t("staging.title") }}
+        <InfoButton :text="t('staging.intro')" />
+      </h2>
       <p class="muted" v-if="stagingList.length === 0 && !stagingError">
         {{ t("staging.empty") }}
       </p>
@@ -2166,19 +2173,21 @@ async function confirmPermDelete(item: StagedItem) {
 
     <ScanProgress :visible="scanning" :progress="scanProgress" />
 
-    <!-- Bölüm 15.1 — iki-kolon workspace (v0.2 ara adım, üç-kolon v0.3) -->
+    <!-- Bölüm 15.1 — üç-kolon workspace (Snapshot | Duplicate | Detail).
+         Geniş ekranda yan yana, dar ekranda alta yığılır. -->
     <div class="workspace">
-      <aside class="col-left">
+      <aside class="col-snap">
         <SnapshotPanel />
       </aside>
-      <aside class="col-right">
+      <aside class="col-dup">
         <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
-
+      </aside>
+      <aside class="col-detail">
         <section class="card detail-card">
-          <h2>{{ t("detail.title") }}</h2>
-          <p class="section-intro" v-if="!selectedNode">
-            {{ t("detail.intro") }}
-          </p>
+          <h2>
+            {{ t("detail.title") }}
+            <InfoButton :text="t('detail.intro')" />
+          </h2>
           <template v-if="selectedNode">
             <p class="detail-name">
               {{ selectedNode.is_dir ? "📁" : "📄" }} {{ selectedNode.name }}
@@ -2508,18 +2517,20 @@ async function confirmPermDelete(item: StagedItem) {
   min-width: 0;
 }
 
-/* Bölüm 15.1 — iki-kolon workspace (v0.2 ara adım). Üst grup (tara +
-   drilldown) full-width; bu workspace altında staging/snapshot vs detail.
-   Gerçek üç-kolon (volume sidebar dahil) v0.3 sprint'inde. */
+/* Üç-kolon workspace: Snapshot | Duplicate | Detail.
+   Geniş ekranda yan yana → 2K monitörler dolu kullanır.
+   1280-1600 arası 2-kolon (detail alta düşer).
+   <960 tek kolon. */
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
 
-.col-left,
-.col-right {
+.col-snap,
+.col-dup,
+.col-detail {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2533,7 +2544,16 @@ async function confirmPermDelete(item: StagedItem) {
   gap: 16px;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1600px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .col-detail {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 960px) {
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -2809,6 +2829,32 @@ async function confirmPermDelete(item: StagedItem) {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 20px 22px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease,
+    transform 0.18s ease;
+  animation: card-enter 0.22s ease-out both;
+}
+
+.card:hover {
+  border-color: color-mix(in srgb, var(--fg) 20%, var(--border));
+  box-shadow: 0 6px 16px var(--shadow);
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+    transition: none;
+  }
 }
 
 .card h2 {

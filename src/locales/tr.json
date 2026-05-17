@@ -23,12 +23,28 @@
   },
   "scan": {
     "title": "Tam Tarama",
+    "intro": "Seçtiğin sürücüyü kök klasörden taban dosyalara kadar tarar. Hızlı modda 1 TB ≈ 5 sn (yönetici gerekir); Standart modda her ortamda çalışır. Sonuç sağdaki görsel haritada açılır.",
     "driveAria": "Sürücü harfi",
     "buttonIdle": "Tara: {drive}:",
     "buttonBusy": "Taranıyor {drive}…"
   },
   "scanProgress": {
-    "liveEmpty": "İlk veriler bekleniyor…"
+    "liveEmpty": "İlk veriler bekleniyor…",
+    "logTitle": "Şu an taranan",
+    "scanning": "Tarama başlatılıyor…"
+  },
+  "scanPhase": {
+    "preparing": "Hazırlanıyor…",
+    "mft": "MFT okunuyor (Hızlı Mod)",
+    "fallback": "Klasörler taranıyor (Standart Mod)",
+    "done": "Tarama tamamlandı"
+  },
+  "scanStats": {
+    "scanned": "Tarandı",
+    "estimated": "Tahmini",
+    "speed": "Hız",
+    "elapsed": "Süre",
+    "remaining": "Kalan"
   },
   "drilldown": {
     "title": "Klasör Görseli",
@@ -61,6 +77,22 @@
     "tierNormal": "Aynı disk",
     "tierCrossTitle": "Diskler arası taşıma — bütünlük kontrolü ve atomik adımlar uygulanır",
     "tierNormalTitle": "Aynı disk içinde anlık yeniden adlandırma"
+  },
+  "snapshot": {
+    "title": "Zaman Makinesi",
+    "intro": "Bir tarama sonrası 📸 ile mevcut durumu yakala. Sonraki taramalarda hangi klasörler büyüdü/küçüldü, neler eklendi/silindi karşılaştırmalı olarak görünür.",
+    "snap": "📸 Snapshot Al",
+    "snapBusy": "Alınıyor…",
+    "empty": "Henüz snapshot yok. Bir tarama sonrası 📸 ile yakala — günlük büyüme/küçülme deltası buradan çıkar.",
+    "compareBtn": "İki snapshot karşılaştır"
+  },
+  "duplicate": {
+    "title": "Dosya İkizleri",
+    "intro": "Aynı içerikli (Blake3 hash eşleşen) dosyaları bulur. Önce taramayı çalıştır, sonra burada minimum boyut filtresi seçip kazanılabilir disk alanını görürsün.",
+    "needsScan": "Önce yukarıdan tam tarama çalıştır. Aynı içerikli dosyalar boyut + hash eşleşmesi ile tespit edilir; gerçek alandan kazanım da burada raporlanır.",
+    "minSize": "Min boyut",
+    "scan": "Tara",
+    "scanBusy": "Taranıyor…"
   },
   "detail": {
     "title": "Seçili Öğe",

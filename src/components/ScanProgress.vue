@@ -32,7 +32,7 @@ interface ScanProgressEvent {
   partial_tree?: PartialNode[] | null;
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const props = defineProps<{
   visible: boolean;
@@ -45,6 +45,18 @@ const props = defineProps<{
 // (overlay kapanınca) bayatlamamak için sıfırlanır.
 const latestPartialTree = ref<PartialNode[]>([]);
 
+// Canlı log — son 12 taranan path'i tut (en yeni başta). Tekrar eden
+// last_name'i göstermeye gerek yok (backend her event'te aynı path'i de
+// gönderiyor olabilir, dedupe).
+interface LogEntry {
+  key: number;
+  path: string;
+}
+const recentLog = ref<LogEntry[]>([]);
+const MAX_LOG = 12;
+let lastSeenPath = "";
+let logSeq = 0;
+
 watch(
   () => props.progress?.partial_tree,
   (incoming) => {
@@ -55,21 +67,38 @@ watch(
 );
 
 watch(
+  () => props.progress?.last_name,
+  (name) => {
+    if (!name || name === lastSeenPath) return;
+    lastSeenPath = name;
+    logSeq += 1;
+    recentLog.value = [
+      { key: logSeq, path: name },
+      ...recentLog.value.slice(0, MAX_LOG - 1),
+    ];
+  },
+);
+
+watch(
   () => props.visible,
   (v) => {
-    if (!v) latestPartialTree.value = [];
+    if (!v) {
+      latestPartialTree.value = [];
+      recentLog.value = [];
+      lastSeenPath = "";
+    }
   },
 );
 
 const phaseLabel = computed(() => {
-  if (!props.progress) return "Hazırlanıyor…";
+  if (!props.progress) return t("scanPhase.preparing");
   switch (props.progress.phase) {
     case "mft_walk":
-      return "MFT okunuyor (Hızlı Mod)";
+      return t("scanPhase.mft");
     case "fallback_walk":
-      return "Klasörler taranıyor (Standart Mod)";
+      return t("scanPhase.fallback");
     case "done":
-      return "Tarama tamamlandı";
+      return t("scanPhase.done");
     default:
       return props.progress.phase;
   }
@@ -97,21 +126,28 @@ const etaSec = computed(() => {
   return Math.ceil(remaining / speedPerSec.value);
 });
 
+function localeTag(): string {
+  return locale.value === "tr" ? "tr-TR" : "en-US";
+}
+
 function formatNumber(n: number): string {
-  return n.toLocaleString("tr-TR");
+  return n.toLocaleString(localeTag());
 }
 
 function formatMs(ms: number): string {
+  const unit = locale.value === "tr" ? "sn" : "s";
   if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} sn`;
+  return `${(ms / 1000).toFixed(1)} ${unit}`;
 }
 
 function formatEta(sec: number | null): string {
   if (sec === null) return "—";
-  if (sec < 60) return `~${sec} sn`;
+  const unit = locale.value === "tr" ? "sn" : "s";
+  const mLabel = locale.value === "tr" ? "dk" : "min";
+  if (sec < 60) return `~${sec} ${unit}`;
   const m = Math.floor(sec / 60);
   const s = sec % 60;
-  return `~${m}:${s.toString().padStart(2, "0")} dk`;
+  return `~${m}:${s.toString().padStart(2, "0")} ${mLabel}`;
 }
 
 function truncatePath(p: string, max = 60): string {
@@ -152,33 +188,54 @@ function truncatePath(p: string, max = 60): string {
 
           <div v-if="progress" class="scan-stats">
             <div class="stat">
-              <span class="stat-key">Tarandı</span>
+              <span class="stat-key">{{ t("scanStats.scanned") }}</span>
               <span class="stat-val mono">{{ formatNumber(progress.visited) }}</span>
             </div>
             <div v-if="progress.total_estimate > 0" class="stat">
-              <span class="stat-key">Tahmini</span>
+              <span class="stat-key">{{ t("scanStats.estimated") }}</span>
               <span class="stat-val mono">
                 {{ formatNumber(progress.total_estimate) }}
               </span>
             </div>
             <div class="stat">
-              <span class="stat-key">Hız</span>
-              <span class="stat-val mono">{{ formatNumber(speedPerSec) }}/sn</span>
+              <span class="stat-key">{{ t("scanStats.speed") }}</span>
+              <span class="stat-val mono">
+                {{ formatNumber(speedPerSec)
+                }}{{ locale === "tr" ? "/sn" : "/s" }}
+              </span>
             </div>
             <div class="stat">
-              <span class="stat-key">Süre</span>
+              <span class="stat-key">{{ t("scanStats.elapsed") }}</span>
               <span class="stat-val mono">{{ formatMs(progress.elapsed_ms) }}</span>
             </div>
             <div class="stat">
-              <span class="stat-key">Kalan</span>
+              <span class="stat-key">{{ t("scanStats.remaining") }}</span>
               <span class="stat-val mono">{{ formatEta(etaSec) }}</span>
             </div>
           </div>
 
-          <p v-if="progress && progress.last_name" class="scan-current mono">
-            {{ truncatePath(progress.last_name) }}
-          </p>
-          <p v-else class="scan-current muted">Tarama başlatılıyor…</p>
+          <div class="scan-log">
+            <div class="scan-log-head">
+              <span class="dot-live"></span>
+              <span class="scan-log-title">{{ t("scanProgress.logTitle") }}</span>
+            </div>
+            <transition-group name="log-row" tag="ul" class="scan-log-list">
+              <li
+                v-for="entry in recentLog"
+                :key="entry.key"
+                class="scan-log-row mono"
+              >
+                {{ truncatePath(entry.path, 64) }}
+              </li>
+              <li
+                v-if="recentLog.length === 0"
+                key="empty"
+                class="scan-log-row muted"
+              >
+                {{ t("scanProgress.scanning") }}
+              </li>
+            </transition-group>
+          </div>
         </div>
       </div>
     </div>
@@ -339,17 +396,100 @@ function truncatePath(p: string, max = 60): string {
   font-weight: 500;
 }
 
-.scan-current {
-  margin: 0;
-  font-size: 11px;
+.scan-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: hidden;
+}
+
+.scan-log-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scan-log-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--muted);
+}
+
+.dot-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #24c8db;
+  box-shadow: 0 0 0 0 rgba(36, 200, 219, 0.7);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(36, 200, 219, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(36, 200, 219, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(36, 200, 219, 0);
+  }
+}
+
+.scan-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.scan-log-row {
+  font-size: 11px;
+  color: var(--fg);
+  opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: var(--bg);
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
+  transition: opacity 0.2s linear;
+}
+
+.scan-log-row:nth-child(1) {
+  color: var(--fg);
+  opacity: 1;
+}
+.scan-log-row:nth-child(n + 5) {
+  opacity: 0.55;
+}
+.scan-log-row:nth-child(n + 9) {
+  opacity: 0.35;
+}
+
+.log-row-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.log-row-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.log-row-enter-active,
+.log-row-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.log-row-move {
+  transition: transform 0.2s ease;
 }
 
 .muted {

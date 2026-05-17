@@ -2,6 +2,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "vue-i18n";
+import InfoButton from "./InfoButton.vue";
+
+const { t } = useI18n();
 
 interface DuplicateGroup {
   hash_hex: string;
@@ -94,12 +98,13 @@ function toggle(hash: string) {
 
 <template>
   <section class="card">
-    <h2>Duplicate Detector (Bölüm 7) — v0.1</h2>
+    <h2>
+      {{ t("duplicate.title") }}
+      <InfoButton :text="t('duplicate.intro')" />
+    </h2>
 
     <p v-if="!hasScan" class="muted">
-      Önce yukarıdan tam tarama çalıştır. Duplicate detector ScanTree üzerinden
-      çalışır — büyük adaylar boyut bucket'ına düşer, sonra Blake3 ile içerikleri
-      doğrulanır.
+      {{ t("duplicate.needsScan") }}
     </p>
 
     <template v-else>

@@ -198,32 +198,26 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--bg, #15161b);
-  border-bottom: 1px solid var(--border, #2a2c34);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
   padding: 8px 12px;
-  font-family: var(
-    --font-ui,
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    sans-serif
-  );
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
 }
 
 .search-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-input, #1c1d24);
-  border: 1px solid var(--border, #2a2c34);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .search-row:focus-within {
-  border-color: var(--accent, #4f8cff);
-  box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.15);
+  border-color: #4f8cff;
+  box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.18);
 }
 
 .search-icon {
@@ -236,7 +230,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: none;
   outline: none;
-  color: var(--fg, #e6e8ee);
+  color: var(--fg);
   font-size: 14px;
   padding: 6px 0;
   min-width: 0;
@@ -251,20 +245,22 @@ onBeforeUnmount(() => {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--accent-soft, #28354b);
-  color: var(--accent-text, #c9dafe);
+  background: rgba(79, 140, 255, 0.16);
+  color: #4f8cff;
+  border: 1px solid rgba(79, 140, 255, 0.3);
   white-space: nowrap;
 }
 
 .status-pill.subtle {
-  background: var(--bg-pill, #232531);
-  color: var(--muted, #8a8f9c);
+  background: var(--bg);
+  color: var(--muted);
+  border-color: var(--border);
 }
 
 .search-error {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--danger, #ff7777);
+  color: var(--err, #ef4444);
 }
 
 .result-list {
@@ -273,9 +269,10 @@ onBeforeUnmount(() => {
   padding: 0;
   max-height: 380px;
   overflow-y: auto;
-  border: 1px solid var(--border, #2a2c34);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-elev, #1a1c22);
+  background: var(--surface);
+  box-shadow: 0 4px 12px var(--shadow);
 }
 
 .result-list.empty li {
@@ -290,8 +287,9 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 6px 10px;
   cursor: pointer;
-  border-bottom: 1px solid var(--border-faint, #23252d);
+  border-bottom: 1px solid var(--border);
   font-size: 13px;
+  transition: background 0.1s;
 }
 
 .result-row:last-child {
@@ -300,7 +298,7 @@ onBeforeUnmount(() => {
 
 .result-row:hover,
 .result-row:focus {
-  background: var(--bg-hover, #232531);
+  background: var(--bg);
   outline: none;
 }
 
@@ -309,22 +307,16 @@ onBeforeUnmount(() => {
 }
 
 .result-name {
-  color: var(--fg, #e6e8ee);
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .result-path {
-  color: var(--muted, #8a8f9c);
+  color: var(--muted);
   font-size: 11px;
-  font-family: var(
-    --font-mono,
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace
-  );
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -332,6 +324,6 @@ onBeforeUnmount(() => {
 }
 
 .muted {
-  color: var(--muted, #8a8f9c);
+  color: var(--muted);
 }
 </style>

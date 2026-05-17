@@ -2,6 +2,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "vue-i18n";
+import InfoButton from "./InfoButton.vue";
+
+const { t } = useI18n();
 
 interface SnapshotMeta {
   id: number;
@@ -188,14 +192,17 @@ onMounted(() => {
 <template>
   <section class="card">
     <div class="snap-head">
-      <h2>Time Machine (Bölüm 8)</h2>
+      <h2>
+        {{ t("snapshot.title") }}
+        <InfoButton :text="t('snapshot.intro')" />
+      </h2>
       <button
         type="button"
         class="probe-btn"
         :disabled="captureBusy"
         @click="captureSnapshot"
       >
-        {{ captureBusy ? "Alınıyor…" : "📸 Snapshot Al" }}
+        {{ captureBusy ? t("snapshot.snapBusy") : t("snapshot.snap") }}
       </button>
     </div>
 
@@ -203,8 +210,7 @@ onMounted(() => {
     <p v-if="listError" class="err">{{ listError }}</p>
 
     <p v-if="snapshots.length === 0 && !listError" class="muted">
-      Henüz snapshot yok. Bir tarama sonrası 📸 ile yakala —
-      günlük büyüme/küçülme delta'sı bu sayede çıkar.
+      {{ t("snapshot.empty") }}
     </p>
 
     <ul v-else class="snap-list">
