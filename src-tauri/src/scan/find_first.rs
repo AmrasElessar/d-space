@@ -25,11 +25,17 @@ use crate::scan::walk::{
     PARTIAL_TREE_INTERVAL, PARTIAL_TREE_MAX_DEPTH, PARTIAL_TREE_TOP_N,
 };
 use crate::scan::NodeId;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::Metadata;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Instant, UNIX_EPOCH};
 use tracing::{debug, info, warn};
+
+/// Hard link dedup için NTFS file_index sorgu eşiği. Bu boyutun altındaki
+/// dosyalar için `CreateFileW + GetFileInformationByHandle` çağırmıyoruz —
+/// tipik hard link'ler (WinSxS DLL'leri, sistem ikilileri) genelde >= 64
+/// KB; daha küçükleri toplam içinde önemsiz.
+const HARDLINK_DEDUP_THRESHOLD: u64 = 64 * 1024;
 
 const FALLBACK_PROGRESS_INTERVAL: u64 = 500;
 
@@ -42,6 +48,66 @@ fn metadata_mtime_unix(metadata: &Metadata) -> i64 {
         },
         Err(_) => 0,
     }
+}
+
+/// NTFS file_index'i `GetFileInformationByHandle` ile alır — hard link
+/// dedupe için. Aynı fiziksel dosya birden çok path üzerinden gezilirse
+/// boyutu **bir kez** sayalım (örn. `WinSxS` binlerce hard link içerir;
+/// 1 TB diskte 1.2 TB rapor edilmesinin baş sebebi budur).
+///
+/// nNumberOfLinks <= 1 → dedupe gerekmiyor (None döner; tek link).
+/// nNumberOfLinks > 1 → 64-bit composite index döner.
+///
+/// `MetadataExt::file_index()` Rust stable'da hâlâ `windows_by_handle`
+/// nightly feature'ı altında; bu yüzden Win32 API'sini direkt çağırıyoruz.
+#[cfg(windows)]
+fn file_index_for_dedupe(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
+    };
+
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let pcwstr = PCWSTR(wide.as_ptr());
+    let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+
+    let handle = unsafe {
+        CreateFileW(
+            pcwstr,
+            0, // No access — yalnız metadata sorgusu için yeterli
+            share,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_BACKUP_SEMANTICS),
+            None,
+        )
+    }
+    .ok()?;
+
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    let ok = unsafe { GetFileInformationByHandle(handle, &mut info) };
+    let _ = unsafe { CloseHandle(handle) };
+    ok.ok()?;
+
+    if info.nNumberOfLinks <= 1 {
+        return None;
+    }
+    Some(((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64))
+}
+
+#[cfg(not(windows))]
+fn file_index_for_dedupe(_path: &Path) -> Option<u64> {
+    None
 }
 
 pub const MAX_DEPTH: u32 = 50;
@@ -84,6 +150,11 @@ pub fn scan_find_first_with_progress(
     let mut skipped_symlinks: u64 = 0;
     let mut max_depth_hits: u64 = 0;
     let mut visited_dirs: u64 = 0;
+    // Hard link dedupe (Windows): aynı file_index iki kez görülürse ikinci
+    // gelen path'in boyutunu 0 sayarız. Toplam boyut fiziksel diske yakın
+    // kalır. WinSxS / Program Files bazlı senaryolarda ~%10-20 fark.
+    let mut seen_file_indices: HashSet<u64> = HashSet::with_capacity(8192);
+    let mut hardlink_duplicates: u64 = 0;
     // Sprint 3.7 — canlı sunburst snapshot eşiği (entries büyüklüğüne göre).
     let mut next_partial_at: u64 = PARTIAL_TREE_INTERVAL;
 
@@ -158,10 +229,28 @@ pub fn scan_find_first_with_progress(
             // kullanırız ki bilinmeyen reparse point'ler içine girmeyelim.
             let metadata = std::fs::symlink_metadata(&path).ok();
             let is_dir = file_type.is_dir();
+            let raw_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            // Hard link dedupe: yalnız >=64 KB dosyalar için Win32
+            // GetFileInformationByHandle ile dosya kimliğini sor. Çoklu
+            // link varsa ikinci-vd görüldüğünde boyut = 0 (toplam disk
+            // doluluğunu aşmasın). Tree'de dosya yine görünür; sadece
+            // aggregate'e katkı vermez.
             let data_size = if is_dir {
                 0
+            } else if raw_size >= HARDLINK_DEDUP_THRESHOLD {
+                match file_index_for_dedupe(&path) {
+                    Some(idx) => {
+                        if seen_file_indices.insert(idx) {
+                            raw_size
+                        } else {
+                            hardlink_duplicates += 1;
+                            0
+                        }
+                    }
+                    None => raw_size, // tek link veya sorgu başarısız
+                }
             } else {
-                metadata.as_ref().map(|m| m.len()).unwrap_or(0)
+                raw_size
             };
             let modified_unix = metadata.as_ref().map(metadata_mtime_unix).unwrap_or(0);
 
@@ -183,6 +272,12 @@ pub fn scan_find_first_with_progress(
 
     if skipped_symlinks > 0 {
         warn!(skipped_symlinks, "symlink/reparse point atlandı");
+    }
+    if hardlink_duplicates > 0 {
+        info!(
+            hardlink_duplicates,
+            "hard link tespit edildi — fiziksel boyutu aşmamak için tekrarlar 0 sayıldı"
+        );
     }
     if max_depth_hits > 0 {
         warn!(max_depth_hits, max_depth = MAX_DEPTH, "max_depth aşıldı");
