@@ -526,30 +526,39 @@ pub fn scan_to_tree_with_user_rules(
     drive: &str,
     user_rules: &[UserRuleSnapshot],
 ) -> crate::error::Result<(ScanSummary, ScanTree)> {
-    scan_to_tree_with_progress(drive, user_rules, None)
+    scan_to_tree_with_progress(drive, user_rules, None, None)
 }
 
-/// Bölüm 5.2A + 6.4 + 9.6.5 — strateji seçimi + canlı progress callback.
+/// Bölüm 5.2A + 6.4 + 9.6.5 — strateji seçimi + canlı progress callback +
+/// opsiyonel iptal flag'i. `cancel.load() == true` periyodik kontrol
+/// edildiğinde walker `Error::Scan("scan-cancelled")` döner.
 pub fn scan_to_tree_with_progress(
     drive: &str,
     user_rules: &[UserRuleSnapshot],
     progress_cb: Option<ProgressCb<'_>>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> crate::error::Result<(ScanSummary, ScanTree)> {
     if is_elevated() {
         debug!("elevated process — MFT yolu denenecek");
-        let collected = collect_mft_entries_with_progress(drive, progress_cb);
+        let collected = collect_mft_entries_with_progress(drive, progress_cb, cancel);
         match collected {
             Ok(c) => {
                 return chain_into_summary(drive, ScanStrategy::DirectRawVolume, c, user_rules)
             }
             Err(e) => {
+                // İptal hatasını fallback'e düşürme — direkt çevirici.
+                if let crate::error::Error::Scan(m) = &e {
+                    if m == "scan-cancelled" {
+                        return Err(e);
+                    }
+                }
                 tracing::warn!(?e, "MFT path başarısız → fallback");
             }
         }
     } else {
         debug!("elevated değil — fallback yolu");
     }
-    let collected = scan_find_first_with_progress(drive, progress_cb)?;
+    let collected = scan_find_first_with_progress(drive, progress_cb, cancel)?;
     chain_into_summary(
         drive,
         ScanStrategy::FindFirstFileFallback,

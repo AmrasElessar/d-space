@@ -39,6 +39,18 @@ const props = defineProps<{
   progress: ScanProgressEvent | null;
 }>();
 
+const emit = defineEmits<{
+  (e: "cancel"): void;
+}>();
+
+const cancelRequested = ref<boolean>(false);
+
+function onCancel(): void {
+  if (cancelRequested.value) return;
+  cancelRequested.value = true;
+  emit("cancel");
+}
+
 // Sprint 3.7 — backend yalnızca 10k entry'de partial_tree gönderir, ara
 // event'ler `null/undefined`. Son alınan dolu tree'yi belleğe alıp
 // LiveSunburst'a stabil veri akışı sağlarız. visible=false olunca
@@ -87,6 +99,7 @@ watch(
       latestPartialTree.value = [];
       recentLog.value = [];
       logSeq = 0;
+      cancelRequested.value = false;
     }
   },
 );
@@ -172,6 +185,15 @@ function splitPath(p: string): { parent: string; name: string } {
       <div class="scan-header">
         <div class="spinner"></div>
         <h3 class="scan-phase">{{ phaseLabel }}</h3>
+        <button
+          type="button"
+          class="cancel-btn"
+          :disabled="cancelRequested"
+          :title="t('scanProgress.cancelTitle')"
+          @click="onCancel"
+        >
+          {{ cancelRequested ? t("scanProgress.cancelling") : t("scanProgress.cancel") }}
+        </button>
       </div>
 
       <div class="scan-body">
@@ -338,6 +360,38 @@ function splitPath(p: string): { parent: string; name: string } {
   gap: 14px;
 }
 
+.cancel-btn {
+  margin-left: auto;
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.55);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cancel-btn:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.22);
+  border-color: rgba(220, 38, 38, 0.75);
+}
+
+.cancel-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+:root:not([data-theme="light"]) .cancel-btn {
+  color: #fca5a5;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .cancel-btn {
+    color: #b91c1c;
+  }
+}
+
 .spinner {
   width: 22px;
   height: 22px;
@@ -434,12 +488,15 @@ function splitPath(p: string): { parent: string; name: string } {
 .scan-log {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 4px 10px 12px;
-  max-height: 320px;
+  padding: 12px 6px 12px 14px;
+  /* Sabit yükseklik — flex children min-height: 0 ile scroll garanti.
+     2K monitörde 14-15 satır görünür, geri kalanlar scroll'lanır. */
+  height: 380px;
+  max-height: 380px;
   overflow: hidden;
   min-height: 0;
 }
@@ -479,28 +536,16 @@ function splitPath(p: string): { parent: string; name: string } {
   }
 }
 
-.scan-log-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: hidden;
-}
-
-/* Şu an taranan: turkuaz vurgulu öne çıkmış satır, her zaman görünür.
-   Sticky → log scroll edilirken bile en üstte kalır. */
+/* Şu an taranan: turkuaz vurgulu öne çıkmış satır. Sticky değil çünkü
+   .scan-log overflow: hidden — scroll alanı içeride. Önce gelir, sonra
+   scroll bölümü altında akar. */
 .scan-current {
   display: block;
-  padding: 6px 9px;
+  padding: 8px 11px;
   border-left: 3px solid #24c8db;
   background: rgba(36, 200, 219, 0.12);
   border-radius: 4px;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin-right: 8px;
+  flex: 0 0 auto;
 }
 
 .scan-current.muted {
@@ -508,35 +553,40 @@ function splitPath(p: string): { parent: string; name: string } {
   background: transparent;
   font-style: italic;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .log-name {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .log-parent {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.25;
-  margin-top: 1px;
+  line-height: 1.3;
+  margin-top: 2px;
 }
 
+/* Geçmiş listesi: gerçek scroll container. Flex 1 ile parent'tan kalan
+   yüksekliği kapar, overflow-y: auto ile scrollbar çıkar. */
 .scan-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 0 0;
+  display: block;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 6px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
   flex: 1 1 auto;
@@ -564,41 +614,50 @@ function splitPath(p: string): { parent: string; name: string } {
 .scan-log-row {
   display: block;
   overflow: hidden;
-  opacity: 0.78;
+  opacity: 0.82;
   transition: opacity 0.2s linear;
-  padding: 2px 4px;
-  border-radius: 2px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid transparent;
 }
 
-/* Geçmiş satırlar — derinlere doğru sönümleniyor. */
-.scan-log-row:nth-child(n + 4) {
-  opacity: 0.6;
+.scan-log-row + .scan-log-row {
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
 }
-.scan-log-row:nth-child(n + 8) {
-  opacity: 0.4;
+
+/* Geçmiş satırlar — derinlere doğru hafif sönümleniyor. Aşırı azaltma
+   yok çünkü scroll var; kullanıcı tümünü okuyabilmeli. */
+.scan-log-row:nth-child(n + 6) {
+  opacity: 0.7;
 }
-.scan-log-row:nth-child(n + 12) {
-  opacity: 0.28;
+.scan-log-row:nth-child(n + 14) {
+  opacity: 0.55;
+}
+.scan-log-row:nth-child(n + 24) {
+  opacity: 0.42;
 }
 
 .log-name-sm {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.28;
+  line-height: 1.32;
 }
 
 .log-parent-sm {
   display: block;
-  font-size: 9px;
+  font-size: 10px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.2;
+  line-height: 1.25;
+  margin-top: 1px;
 }
 
 .log-row-enter-from {

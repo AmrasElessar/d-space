@@ -124,7 +124,7 @@ fn drive_to_root(drive: &str) -> Result<PathBuf> {
 
 /// Geriye uyumlu — progress callback olmadan.
 pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
-    scan_find_first_with_progress(drive, None)
+    scan_find_first_with_progress(drive, None, None)
 }
 
 /// BFS yürüyüş. Her dizin için `read_dir` çağırır, child'ları sıraya alır.
@@ -133,6 +133,7 @@ pub fn scan_find_first(drive: &str) -> Result<MftEntries> {
 pub fn scan_find_first_with_progress(
     drive: &str,
     progress_cb: Option<ProgressCb<'_>>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<MftEntries> {
     let start = Instant::now();
     let root = drive_to_root(drive)?;
@@ -160,6 +161,14 @@ pub fn scan_find_first_with_progress(
 
     while let Some((dir, parent_id, depth)) = queue.pop_front() {
         visited_dirs += 1;
+        // Cancellation check — her progress interval'da yeterli.
+        if entries.len() as u64 % FALLBACK_PROGRESS_INTERVAL == 0 {
+            if let Some(c) = cancel {
+                if c.load(std::sync::atomic::Ordering::Acquire) {
+                    return Err(Error::Scan("scan-cancelled".into()));
+                }
+            }
+        }
         if let Some(cb) = progress_cb {
             if entries.len() as u64 % FALLBACK_PROGRESS_INTERVAL == 0 {
                 let partial = if entries.len() as u64 >= next_partial_at {

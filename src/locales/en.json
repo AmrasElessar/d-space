@@ -31,7 +31,10 @@
   "scanProgress": {
     "liveEmpty": "Waiting for first results…",
     "logTitle": "Now scanning",
-    "scanning": "Starting scan…"
+    "scanning": "Starting scan…",
+    "cancel": "Stop scan",
+    "cancelling": "Stopping…",
+    "cancelTitle": "Cancel the in-progress scan"
   },
   "scanPhase": {
     "preparing": "Preparing…",

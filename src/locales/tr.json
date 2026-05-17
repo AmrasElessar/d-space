@@ -31,7 +31,10 @@
   "scanProgress": {
     "liveEmpty": "İlk veriler bekleniyor…",
     "logTitle": "Şu an taranan",
-    "scanning": "Tarama başlatılıyor…"
+    "scanning": "Tarama başlatılıyor…",
+    "cancel": "Taramayı durdur",
+    "cancelling": "Durduruluyor…",
+    "cancelTitle": "Devam eden taramayı iptal et"
   },
   "scanPhase": {
     "preparing": "Hazırlanıyor…",

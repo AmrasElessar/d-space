@@ -981,9 +981,23 @@ async function runFullScan() {
     recordPerfSample(scanSummary.value);
     await loadWindow(scanSummary.value.root_id);
   } catch (err) {
-    scanError.value = formatIpcError(err);
+    const msg = formatIpcError(err);
+    // Kullanıcı iptal ettiyse "hata" gibi göstermeyelim.
+    if (msg.includes("scan-cancelled")) {
+      scanError.value = null;
+    } else {
+      scanError.value = msg;
+    }
   } finally {
     scanning.value = false;
+  }
+}
+
+async function cancelScan() {
+  try {
+    await invoke("scan_cancel");
+  } catch (err) {
+    console.warn("scan_cancel hatası", err);
   }
 }
 
@@ -2176,7 +2190,11 @@ async function confirmPermDelete(item: StagedItem) {
 
     <Onboarding :visible="onboardingVisible" @finish="finishOnboarding" />
 
-    <ScanProgress :visible="scanning" :progress="scanProgress" />
+    <ScanProgress
+      :visible="scanning"
+      :progress="scanProgress"
+      @cancel="cancelScan"
+    />
 
     <!-- Bölüm 15.1 — üç-kolon workspace (Snapshot | Duplicate | Detail).
          Geniş ekranda yan yana, dar ekranda alta yığılır. -->

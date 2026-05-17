@@ -182,9 +182,9 @@ fn extract_full(file: &NtfsFile, handle: &mut File) -> Option<(String, u64, u64,
     None
 }
 
-/// Geriye uyumlu — progress callback olmadan.
+/// Geriye uyumlu — progress callback ve cancel flag olmadan.
 pub fn collect_mft_entries(drive: &str) -> Result<MftEntries> {
-    collect_mft_entries_with_progress(drive, None)
+    collect_mft_entries_with_progress(drive, None, None)
 }
 
 /// Sprint 3.7 — canlı sunburst için raw entries'den hafif partial view inşa eder.
@@ -208,6 +208,7 @@ pub(crate) fn build_partial_from_raw(
 pub fn collect_mft_entries_with_progress(
     drive: &str,
     progress_cb: Option<ProgressCb<'_>>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<MftEntries> {
     let start = Instant::now();
     let volume_path = normalize_volume_path(drive)?;
@@ -239,6 +240,14 @@ pub fn collect_mft_entries_with_progress(
     // collect aşamasında kullanıcı entries'i temiz görür; build_tree
     // gerekirse root sentetik düğüm üretir.
     for record_no in 16..cap {
+        // Cancellation check — her MFT_PROGRESS_INTERVAL'da bir yeterli.
+        if (record_no - 16) % MFT_PROGRESS_INTERVAL == 0 {
+            if let Some(c) = cancel {
+                if c.load(std::sync::atomic::Ordering::Acquire) {
+                    return Err(Error::Scan("scan-cancelled".into()));
+                }
+            }
+        }
         // Progress event
         if let Some(cb) = progress_cb {
             if (record_no - 16) % MFT_PROGRESS_INTERVAL == 0 {

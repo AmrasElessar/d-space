@@ -45,8 +45,15 @@ use crate::volume::{
     list_drives, pre_flight_check, probe_drive_hardware, DriveHardware, VolumeInfo,
 };
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{info, warn};
+
+/// Tarama iptal bayrağı — `scan_cancel` set eder, `scan_full` her
+/// koşunun başında reset eder, walker periyodik kontrol eder. Tek-koşu
+/// global flag yeterli: D-Space anda yalnız bir scan_full çalıştırır.
+#[derive(Default)]
+pub struct ScanCancel(pub Arc<AtomicBool>);
 
 #[derive(Debug, Serialize)]
 pub struct AppInfo {
@@ -109,6 +116,17 @@ async fn list_drives_cmd() -> Result<Vec<VolumeInfo>> {
         .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
 }
 
+/// Sürmekte olan taramayı iptal et — `ScanCancel` bayrağını set eder,
+/// walker bir sonraki progress checkpoint'inde fark eder ve
+/// `Error::Scan("scan-cancelled")` ile bail eder. Bir tarama yoksa
+/// no-op (bayrak set olur, sonraki scan_full reset eder).
+#[tauri::command]
+fn scan_cancel(state: tauri::State<'_, ScanCancel>) -> Result<()> {
+    state.0.store(true, Ordering::Release);
+    info!("scan_cancel istendi — bayrak set");
+    Ok(())
+}
+
 /// Bir sürücünün donanım profilini döner: bus tipi (NVMe/SATA/USB),
 /// medya tipi (SSD/HDD), üretici, model, seri, tipik okuma hızı.
 /// Win32 `IOCTL_STORAGE_QUERY_PROPERTY` kullanılır; admin gerekmez.
@@ -150,6 +168,7 @@ async fn scan_full<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     scan_state: tauri::State<'_, ScanTreeState>,
     db_state: tauri::State<'_, DbState>,
+    cancel_state: tauri::State<'_, ScanCancel>,
 ) -> Result<ScanSummary> {
     use tauri::Emitter;
     let drv = drive.clone();
@@ -160,6 +179,10 @@ async fn scan_full<R: tauri::Runtime>(
             .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
         list_active_snapshots(&conn)?
     };
+
+    // İptal bayrağı her yeni scan_full'da reset.
+    cancel_state.0.store(false, Ordering::Release);
+    let cancel_handle = cancel_state.0.clone();
 
     // Progress channel: scan thread → emit task. spawn_blocking içinden
     // doğrudan window.emit çağrısı thread-safety açısından güvenli ama
@@ -176,7 +199,12 @@ async fn scan_full<R: tauri::Runtime>(
         let cb: Box<dyn Fn(&ScanProgress) + Send + Sync> = Box::new(move |p| {
             let _ = tx.send(p.clone());
         });
-        scan_to_tree_with_progress(&drv, &user_rules, Some(cb.as_ref()))
+        scan_to_tree_with_progress(
+            &drv,
+            &user_rules,
+            Some(cb.as_ref()),
+            Some(cancel_handle.as_ref()),
+        )
     })
     .await
     .map_err(|e| Error::Scan(format!("join hatası: {}", e)))??;
@@ -736,6 +764,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(db_state)
         .manage(ScanTreeState::default())
+        .manage(ScanCancel::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -752,6 +781,7 @@ pub fn run() {
             probe_volume,
             walk_volume,
             scan_full,
+            scan_cancel,
             tree_top_consumers,
             tree_window,
             tree_path,
