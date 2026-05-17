@@ -103,9 +103,9 @@ pub fn probe_drive_hardware(drive_letter: char) -> Result<DriveHardware> {
         FILE_SHARE_WRITE, OPEN_EXISTING,
     };
     use windows::Win32::System::Ioctl::{
-        DEVICE_SEEK_PENALTY_DESCRIPTOR, IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery,
-        STORAGE_DEVICE_DESCRIPTOR, STORAGE_PROPERTY_QUERY, StorageDeviceProperty,
-        StorageDeviceSeekPenaltyProperty,
+        PropertyStandardQuery, StorageDeviceProperty, StorageDeviceSeekPenaltyProperty,
+        DEVICE_SEEK_PENALTY_DESCRIPTOR, IOCTL_STORAGE_QUERY_PROPERTY, STORAGE_DEVICE_DESCRIPTOR,
+        STORAGE_PROPERTY_QUERY,
     };
     use windows::Win32::System::IO::DeviceIoControl;
 
@@ -199,7 +199,7 @@ pub fn probe_drive_hardware(drive_letter: char) -> Result<DriveHardware> {
                 read_str(desc.ProductIdOffset),
                 read_str(desc.SerialNumberOffset),
                 desc.RemovableMedia,
-                desc.BusType.0 as i32,
+                desc.BusType.0,
             )
         } else {
             (None, None, None, false, 0)
