@@ -564,6 +564,7 @@ async fn find_duplicates_cmd(
     let opts = DuplicateOptions {
         min_size_bytes: min_size_bytes.unwrap_or(crate::duplicate::DEFAULT_MIN_DUP_SIZE),
         size_only: size_only.unwrap_or(false),
+        skip_head_prefilter: false,
     };
     // Hash I/O blocking — spawn_blocking ile asenkron.
     tokio::task::spawn_blocking(move || find_duplicates(&tree_arc, letter, opts))
