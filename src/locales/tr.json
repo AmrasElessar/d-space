@@ -166,7 +166,16 @@
     "modeStandardB2": "Network/USB/ReFS hepsi",
     "modeStandardB3": "Daha yavaş ama her yerde (Katman 2)",
     "start": "Başla ▶",
-    "license": "GPL-3.0-or-later · Spec v1.4"
+    "license": "GPL-3.0-or-later · Spec v1.4",
+    "compareTitle": "Nasıl farklı?",
+    "compareIntro": "Disk analiz alanında popüler araçlar var. Her birinin güçlü yanı farklı; D-Space hız + güvenlik garantisi + AI skor üçlüsünü hedefliyor.",
+    "compareFeature": "Özellik",
+    "compareSpeed": "Hız (1 TB)",
+    "compareScore": "Silme güvenlik skoru",
+    "compareUndo": "24 saat geri alma",
+    "compareTheme": "Modern tema (light/dark)",
+    "compareLicense": "Lisans",
+    "compareDisclaimer": "✓ = var · ○ = kısmi · — = yok · *WizTree free non-commercial. Veriler 2026-05 itibarıyla; rakip sürümlerinde değişebilir."
   },
   "shortcuts": {
     "title": "⌨ Klavye Kısayolları (Bölüm 15.2)",

@@ -23,12 +23,65 @@ interface Slide {
   emoji: string;
   titleKey: string;
   bodyKey: string;
+  compare?: boolean;
 }
 
 const SLIDES: Slide[] = [
   { emoji: "📊", titleKey: "onboarding.slide1Title", bodyKey: "onboarding.slide1Body" },
   { emoji: "🧠", titleKey: "onboarding.slide2Title", bodyKey: "onboarding.slide2Body" },
   { emoji: "↩", titleKey: "onboarding.slide3Title", bodyKey: "onboarding.slide3Body" },
+  {
+    emoji: "🆚",
+    titleKey: "onboarding.compareTitle",
+    bodyKey: "onboarding.compareIntro",
+    compare: true,
+  },
+];
+
+interface CompareRow {
+  featureKey: string;
+  dspace: string;
+  wizTree: string;
+  treeSize: string;
+  winDirStat: string;
+}
+
+const COMPARE_ROWS: CompareRow[] = [
+  {
+    featureKey: "onboarding.compareSpeed",
+    dspace: "< 5 sn (MFT)",
+    wizTree: "< 5 sn",
+    treeSize: "~ 30 sn",
+    winDirStat: "~ 3-5 dk",
+  },
+  {
+    featureKey: "onboarding.compareScore",
+    dspace: "✓",
+    wizTree: "—",
+    treeSize: "○",
+    winDirStat: "—",
+  },
+  {
+    featureKey: "onboarding.compareUndo",
+    dspace: "✓",
+    wizTree: "—",
+    treeSize: "—",
+    winDirStat: "—",
+  },
+  {
+    featureKey: "onboarding.compareTheme",
+    dspace: "✓",
+    wizTree: "○",
+    treeSize: "✓",
+    winDirStat: "—",
+  },
+  {
+    featureKey: "onboarding.compareLicense",
+    dspace: "GPL-3.0",
+    wizTree: "Free*",
+    treeSize: "Premium",
+    winDirStat: "GPL",
+  },
 ];
 
 defineProps<{ visible: boolean }>();
@@ -79,10 +132,36 @@ function finish() {
       </header>
 
       <template v-if="step === 'slides'">
-        <div class="slide">
+        <div class="slide" :class="{ 'slide-compare': currentSlide.compare }">
           <div class="slide-emoji">{{ currentSlide.emoji }}</div>
           <h3 class="slide-title">{{ t(currentSlide.titleKey) }}</h3>
           <p class="slide-body">{{ t(currentSlide.bodyKey) }}</p>
+
+          <table v-if="currentSlide.compare" class="compare-table">
+            <thead>
+              <tr>
+                <th class="compare-head-feature">
+                  {{ t("onboarding.compareFeature") }}
+                </th>
+                <th class="compare-head-self">D-Space</th>
+                <th>WizTree</th>
+                <th>TreeSize</th>
+                <th>WinDirStat</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in COMPARE_ROWS" :key="row.featureKey">
+                <th class="compare-row-head">{{ t(row.featureKey) }}</th>
+                <td class="compare-cell-self mono">{{ row.dspace }}</td>
+                <td class="mono">{{ row.wizTree }}</td>
+                <td class="mono">{{ row.treeSize }}</td>
+                <td class="mono">{{ row.winDirStat }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="currentSlide.compare" class="compare-disclaimer">
+            {{ t("onboarding.compareDisclaimer") }}
+          </p>
         </div>
 
         <div class="slide-dots">
@@ -257,6 +336,68 @@ function finish() {
   line-height: 1.6;
   max-width: 420px;
   margin-inline: auto;
+}
+
+.slide-compare {
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.slide-compare .slide-body {
+  max-width: 540px;
+  margin-bottom: 16px;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 6px 0 10px;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  color: var(--fg);
+}
+
+.compare-table thead th {
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  background: var(--bg);
+}
+
+.compare-head-feature {
+  text-align: left;
+}
+
+.compare-head-self {
+  color: #2563eb !important;
+}
+
+.compare-row-head {
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.compare-cell-self {
+  background: rgba(59, 130, 246, 0.08);
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.compare-disclaimer {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 4px 0 0;
+  font-style: italic;
+  text-align: center;
 }
 
 .slide-dots {

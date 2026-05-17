@@ -166,7 +166,16 @@
     "modeStandardB2": "Network/USB/ReFS all supported",
     "modeStandardB3": "Slower but universal (Tier 2)",
     "start": "Start ▶",
-    "license": "GPL-3.0-or-later · Spec v1.4"
+    "license": "GPL-3.0-or-later · Spec v1.4",
+    "compareTitle": "How is it different?",
+    "compareIntro": "There are popular tools in the disk-analysis space. Each has strengths; D-Space aims for the speed + safety + AI-score trio.",
+    "compareFeature": "Feature",
+    "compareSpeed": "Speed (1 TB)",
+    "compareScore": "Safe-delete score",
+    "compareUndo": "24h undo",
+    "compareTheme": "Modern theme (light/dark)",
+    "compareLicense": "License",
+    "compareDisclaimer": "✓ = yes · ○ = partial · — = no · *WizTree free non-commercial. Data as of 2026-05; may change with vendor releases."
   },
   "shortcuts": {
     "title": "⌨ Keyboard Shortcuts (Section 15.2)",
