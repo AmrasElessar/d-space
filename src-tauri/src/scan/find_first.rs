@@ -113,8 +113,41 @@ fn file_index_for_dedupe(_path: &Path) -> Option<u64> {
 pub const MAX_DEPTH: u32 = 50;
 const SYNTHETIC_ID_START: u64 = 16;
 
+/// Bölüm 26.2 — `drive` parametresinden taranabilir kök path. İki form:
+///   * "C" / "c:" / "C:\\" / "C:/Users" → `C:\` (lokal harf)
+///   * `\\server\share` ya da `\\server\share\subpath` → tam UNC kökü
+///     (network sürücü)
+///
+/// UNC path detection: ilk iki karakter `\\` (veya `//`) ise UNC kabul
+/// edilir. Sürücü harfi yerine path doğrudan kullanılır. Network sürücü
+/// uyarısı pre_flight ile zaten basılır.
 fn drive_to_root(drive: &str) -> Result<PathBuf> {
-    let letter = drive
+    let trimmed = drive.trim();
+    if trimmed.is_empty() {
+        return Err(Error::Scan("Boş drive parametresi".into()));
+    }
+    // UNC path: `\\server\share[\sub]` veya forward slash varyantı.
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 2
+        && (bytes[0] == b'\\' || bytes[0] == b'/')
+        && (bytes[1] == b'\\' || bytes[1] == b'/')
+    {
+        // UNC kökü — normalize: backslash'lara çevir.
+        let normalized = trimmed.replace('/', "\\");
+        // En az `\\server\share` olmalı (split sonrası ≥3 boş-olmayan parça:
+        // ["", "", "server", "share"] split('\\').count() >= 4).
+        let parts: Vec<&str> = normalized.split('\\').collect();
+        let non_empty = parts.iter().filter(|p| !p.is_empty()).count();
+        if non_empty < 2 {
+            return Err(Error::Scan(format!(
+                "Geçersiz UNC path (server\\share gerekli): '{}'",
+                trimmed
+            )));
+        }
+        return Ok(PathBuf::from(normalized));
+    }
+    // Lokal sürücü harfi.
+    let letter = trimmed
         .chars()
         .find(|c| c.is_ascii_alphabetic())
         .ok_or_else(|| Error::Scan(format!("Geçersiz sürücü: '{}'", drive)))?
@@ -317,6 +350,45 @@ mod tests {
         assert_eq!(drive_to_root("C").unwrap(), PathBuf::from(r"C:\"));
         assert_eq!(drive_to_root("d:").unwrap(), PathBuf::from(r"D:\"));
         assert!(drive_to_root("").is_err());
+    }
+
+    #[test]
+    fn unc_path_accepted_as_root() {
+        // `\\server\share` ve alt-path varyantları geçerli kabul edilmeli.
+        assert_eq!(
+            drive_to_root(r"\\fileserver\public").unwrap(),
+            PathBuf::from(r"\\fileserver\public")
+        );
+        assert_eq!(
+            drive_to_root(r"\\fs01\projects\dspace").unwrap(),
+            PathBuf::from(r"\\fs01\projects\dspace")
+        );
+    }
+
+    #[test]
+    fn unc_path_forward_slash_normalized() {
+        // Forward-slash kullanan kullanıcılar — backslash'a normalize edilir.
+        assert_eq!(
+            drive_to_root("//server/share").unwrap(),
+            PathBuf::from(r"\\server\share")
+        );
+    }
+
+    #[test]
+    fn unc_path_missing_share_errors() {
+        // `\\server` (share yok) reddedilmeli.
+        let err = drive_to_root(r"\\server").unwrap_err();
+        if let Error::Scan(msg) = err {
+            assert!(msg.contains("UNC"));
+        } else {
+            panic!("Scan hatası bekleniyor");
+        }
+    }
+
+    #[test]
+    fn unc_path_double_slash_only_errors() {
+        let err = drive_to_root(r"\\").unwrap_err();
+        assert!(matches!(err, Error::Scan(_)));
     }
 
     #[test]
