@@ -36,10 +36,41 @@ interface Segment {
   size: number;
   path: string;
   color: string;
+  edgeColor: string;
   labelX: number;
   labelY: number;
   showLabel: boolean;
   angleSpan: number;
+}
+
+// Tableau 10 — perceptually balanced, dark/light tema'da okunabilir.
+const PALETTE = [
+  "#4e79a7",
+  "#f28e2c",
+  "#e15759",
+  "#76b7b2",
+  "#59a14f",
+  "#edc949",
+  "#af7aa1",
+  "#ff9da7",
+  "#9c755f",
+  "#bab0ab",
+  "#5b8ff9",
+  "#5ad8a6",
+];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const v = parseInt(hex.slice(1), 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+function mix(hex: string, target: string, factor: number): string {
+  const [r1, g1, b1] = hexToRgb(hex);
+  const [r2, g2, b2] = hexToRgb(target);
+  const r = Math.round(r1 + (r2 - r1) * factor);
+  const g = Math.round(g1 + (g2 - g1) * factor);
+  const b = Math.round(b1 + (b2 - b1) * factor);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
 const props = defineProps<{
@@ -84,13 +115,14 @@ function arcPath(
   ].join(" ");
 }
 
-function colorFor(index: number, total: number, isDir: boolean): string {
-  const baseHue = 175;
-  const span = 80;
-  const hue = (baseHue + (index * span) / Math.max(total, 6)) % 360;
-  const sat = isDir ? 50 : 35;
-  const light = isDir ? 48 : 38;
-  return `hsl(${hue.toFixed(0)} ${sat}% ${light}%)`;
+function colorFor(index: number, isDir: boolean): string {
+  let color = PALETTE[index % PALETTE.length];
+  if (!isDir) color = mix(color, "#888888", 0.18);
+  return color;
+}
+
+function edgeFor(fill: string): string {
+  return mix(fill, "#000000", 0.32);
 }
 
 function formatBytes(b: number): string {
@@ -131,13 +163,15 @@ const segments = computed<Segment[]>(() => {
     const labelR = (INNER_R + OUTER_R) / 2;
     const [lx, ly] = polarToCart(labelAngle, labelR);
 
+    const fill = colorFor(i, node.is_dir);
     segs.push({
       id: node.id,
       name: node.name,
       is_dir: node.is_dir,
       size: node.aggregate_size,
       path: arcPath(a1g, a2g, INNER_R, OUTER_R),
-      color: colorFor(i, n, node.is_dir),
+      color: fill,
+      edgeColor: edgeFor(fill),
       labelX: lx,
       labelY: ly,
       showLabel: angleSpan > 0.18, // ≥ ~10°
@@ -189,12 +223,36 @@ function onClick(seg: Segment) {
       :viewBox="`${-OUTER_R - 10} ${-OUTER_R - 10} ${OUTER_R * 2 + 20} ${OUTER_R * 2 + 20}`"
       preserveAspectRatio="xMidYMid meet"
     >
-      <g>
+      <defs>
+        <radialGradient id="db-sun-gloss" cx="50%" cy="50%" r="55%">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.18)" />
+          <stop offset="60%" stop-color="rgba(255,255,255,0.05)" />
+          <stop offset="100%" stop-color="rgba(0,0,0,0.28)" />
+        </radialGradient>
+        <filter
+          id="db-sun-shadow"
+          x="-20%"
+          y="-20%"
+          width="140%"
+          height="140%"
+        >
+          <feDropShadow
+            dx="0"
+            dy="2"
+            stdDeviation="1.6"
+            flood-color="rgba(0,0,0,0.45)"
+          />
+        </filter>
+      </defs>
+
+      <g filter="url(#db-sun-shadow)">
         <path
           v-for="seg in segments"
           :key="seg.id"
           :d="seg.path"
           :fill="seg.color"
+          :stroke="seg.edgeColor"
+          stroke-width="0.6"
           :class="{
             arc: true,
             'arc-dir': seg.is_dir,
@@ -208,7 +266,16 @@ function onClick(seg: Segment) {
             {{ seg.name }} · {{ formatBytes(seg.size) }}
           </title>
         </path>
+      </g>
 
+      <!-- 3D parlaklık katmanı tüm wedge'lerin üstünde -->
+      <circle
+        :r="OUTER_R"
+        fill="url(#db-sun-gloss)"
+        class="gloss-overlay"
+      />
+
+      <g pointer-events="none">
         <template v-for="seg in segments" :key="`l-${seg.id}`">
           <text
             v-if="seg.showLabel"
@@ -222,7 +289,7 @@ function onClick(seg: Segment) {
           </text>
         </template>
 
-        <circle :r="INNER_R - 4" fill="#0b0d10" />
+        <circle :r="INNER_R - 4" class="center-disk" />
         <text
           x="0"
           y="-12"
@@ -276,10 +343,14 @@ function onClick(seg: Segment) {
 }
 
 .arc {
-  stroke: #0b0d10;
-  stroke-width: 1.2;
-  transition: opacity 0.15s, filter 0.15s;
-  opacity: 0.85;
+  opacity: 0.95;
+  transition:
+    opacity 0.15s ease,
+    filter 0.18s ease,
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    stroke-width 0.18s ease;
+  transform-origin: 0 0;
+  transform-box: fill-box;
 }
 
 .arc-dir {
@@ -289,33 +360,60 @@ function onClick(seg: Segment) {
 .arc-dir:hover,
 .arc-active {
   opacity: 1;
-  filter: drop-shadow(0 0 6px rgba(36, 200, 219, 0.4));
+  filter: brightness(1.14) drop-shadow(0 3px 7px rgba(0, 0, 0, 0.45));
+  transform: scale(1.025);
+  stroke-width: 1.4;
+}
+
+.gloss-overlay {
+  pointer-events: none;
+  mix-blend-mode: soft-light;
 }
 
 .arc-label {
-  font-size: 10px;
-  fill: #f5f5f5;
-  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  fill: #ffffff;
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  paint-order: stroke fill;
+  stroke: rgba(0, 0, 0, 0.65);
+  stroke-width: 2.2px;
+  stroke-linejoin: round;
   pointer-events: none;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+.center-disk {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1.2;
 }
 
 .center-name {
   font-size: 13px;
   fill: var(--fg);
   font-weight: 600;
+  paint-order: stroke fill;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
 .center-size {
   font-size: 14px;
-  fill: #6ee7b7;
+  fill: var(--fg);
   font-family: ui-monospace, monospace;
+  font-weight: 600;
 }
 
 .center-pct {
   font-size: 11px;
   fill: var(--muted);
   font-family: ui-monospace, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arc {
+    transition: none;
+  }
 }
 
 .sunburst-empty {

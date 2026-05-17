@@ -45,16 +45,16 @@ const props = defineProps<{
 // (overlay kapanınca) bayatlamamak için sıfırlanır.
 const latestPartialTree = ref<PartialNode[]>([]);
 
-// Canlı log — son 12 taranan path'i tut (en yeni başta). Tekrar eden
-// last_name'i göstermeye gerek yok (backend her event'te aynı path'i de
-// gönderiyor olabilir, dedupe).
+// Canlı log — son 10 taranan path'i tut (en yeni başta). Backend
+// `last_name` her progress event'te yeni dosya/dizini taşır; aynısı
+// arka arkaya gelse bile pushlarız (kullanıcı log akıyormuş gibi
+// görsün). Boş last_name skip.
 interface LogEntry {
   key: number;
   path: string;
 }
 const recentLog = ref<LogEntry[]>([]);
-const MAX_LOG = 12;
-let lastSeenPath = "";
+const MAX_LOG = 10;
 let logSeq = 0;
 
 watch(
@@ -69,15 +69,16 @@ watch(
 watch(
   () => props.progress?.last_name,
   (name) => {
-    if (!name || name === lastSeenPath) return;
-    lastSeenPath = name;
+    if (!name) return;
     logSeq += 1;
-    recentLog.value = [
-      { key: logSeq, path: name },
-      ...recentLog.value.slice(0, MAX_LOG - 1),
-    ];
+    const next = recentLog.value.slice(0, MAX_LOG - 1);
+    next.unshift({ key: logSeq, path: name });
+    recentLog.value = next;
   },
 );
+
+const currentEntry = computed<LogEntry | null>(() => recentLog.value[0] ?? null);
+const historyEntries = computed<LogEntry[]>(() => recentLog.value.slice(1));
 
 watch(
   () => props.visible,
@@ -85,7 +86,7 @@ watch(
     if (!v) {
       latestPartialTree.value = [];
       recentLog.value = [];
-      lastSeenPath = "";
+      logSeq = 0;
     }
   },
 );
@@ -228,29 +229,45 @@ function splitPath(p: string): { parent: string; name: string } {
               <span class="dot-live"></span>
               <span class="scan-log-title">{{ t("scanProgress.logTitle") }}</span>
             </div>
-            <transition-group name="log-row" tag="ul" class="scan-log-list">
+
+            <!-- Şu an taranan: vurgulu, her zaman görünür. -->
+            <div v-if="currentEntry" class="scan-current" :title="currentEntry.path">
+              <div class="log-name mono">
+                {{ splitPath(currentEntry.path).name || currentEntry.path }}
+              </div>
+              <div
+                v-if="splitPath(currentEntry.path).parent"
+                class="log-parent mono"
+              >
+                {{ truncatePath(splitPath(currentEntry.path).parent, 60) }}
+              </div>
+            </div>
+            <div v-else class="scan-current muted">
+              {{ t("scanProgress.scanning") }}
+            </div>
+
+            <!-- Geçmiş satırlar — her zaman ul render edilir ki TG düzgün
+                 çalışsın; boşken görünmez kalır. -->
+            <transition-group
+              tag="ul"
+              name="log-row"
+              class="scan-log-list"
+            >
               <li
-                v-for="entry in recentLog"
+                v-for="entry in historyEntries"
                 :key="entry.key"
                 class="scan-log-row"
+                :title="entry.path"
               >
-                <span class="log-name mono">
-                  {{ splitPath(entry.path).name }}
+                <span class="log-name-sm mono">
+                  {{ splitPath(entry.path).name || entry.path }}
                 </span>
                 <span
                   v-if="splitPath(entry.path).parent"
-                  class="log-parent mono"
-                  :title="entry.path"
+                  class="log-parent-sm mono"
                 >
                   {{ truncatePath(splitPath(entry.path).parent, 50) }}
                 </span>
-              </li>
-              <li
-                v-if="recentLog.length === 0"
-                key="empty"
-                class="scan-log-row muted"
-              >
-                {{ t("scanProgress.scanning") }}
               </li>
             </transition-group>
           </div>
@@ -471,38 +488,30 @@ function splitPath(p: string): { parent: string; name: string } {
   overflow: hidden;
 }
 
-.scan-log-row {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  overflow: hidden;
-  opacity: 0.85;
-  transition: opacity 0.2s linear;
-  padding: 2px 4px;
-  border-left: 2px solid transparent;
-  border-radius: 2px;
+/* Şu an taranan: turkuaz vurgulu öne çıkmış satır, her zaman görünür.
+   Açık ve koyu temada okunabilir; background opaque (color-mix yerine
+   sabit rgba) — eski tarayıcı uyumluluğu için. */
+.scan-current {
+  display: block;
+  padding: 8px 10px;
+  border-left: 3px solid #24c8db;
+  background: rgba(36, 200, 219, 0.12);
+  border-radius: 4px;
+  min-height: 28px;
 }
 
-/* En son taranan satır: parlak + soldan vurgu çubuğu. */
-.scan-log-row:nth-child(1) {
-  opacity: 1;
-  border-left-color: #24c8db;
-  background: color-mix(in srgb, #24c8db 8%, transparent);
-}
-
-/* Eski satırları fade'le. */
-.scan-log-row:nth-child(n + 4) {
-  opacity: 0.7;
-}
-.scan-log-row:nth-child(n + 7) {
-  opacity: 0.45;
-}
-.scan-log-row:nth-child(n + 9) {
-  opacity: 0.3;
+.scan-current.muted {
+  border-left-color: var(--border);
+  background: transparent;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .log-name {
-  font-size: 13px;
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -511,6 +520,45 @@ function splitPath(p: string): { parent: string; name: string } {
 }
 
 .log-parent {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.scan-log-row {
+  display: block;
+  overflow: hidden;
+  opacity: 0.7;
+  transition: opacity 0.2s linear;
+  padding: 3px 6px;
+  border-radius: 2px;
+}
+
+/* Geçmiş satırlar — derinlere doğru sönümleniyor. */
+.scan-log-row:nth-child(n + 3) {
+  opacity: 0.5;
+}
+.scan-log-row:nth-child(n + 6) {
+  opacity: 0.32;
+}
+
+.log-name-sm {
+  display: block;
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.log-parent-sm {
+  display: block;
   font-size: 10px;
   color: var(--muted);
   overflow: hidden;
