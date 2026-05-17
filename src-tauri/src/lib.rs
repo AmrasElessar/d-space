@@ -192,6 +192,24 @@ fn scan_cancel(state: tauri::State<'_, ScanCancel>) -> Result<()> {
     Ok(())
 }
 
+/// Sprint 4.4 + Bölüm 26.2 — UNC path (`\\server\share[\sub]`) network
+/// taraması. find_first walker UNC kabul eder; bu wrapper sayım +
+/// bandwidth tahmini döner. `bandwidth_cap_bps` v0.3.2'de gerçek
+/// throttling için tahsis edildi.
+#[tauri::command]
+async fn scan_unc_path(
+    unc_path: String,
+    bandwidth_cap_bps: Option<u64>,
+) -> Result<crate::v2::NetworkScanResult> {
+    use crate::v2::{NetworkShareScanner, WindowsNetworkScanner};
+    tokio::task::spawn_blocking(move || {
+        let scanner = WindowsNetworkScanner::new();
+        scanner.scan_unc(&unc_path, bandwidth_cap_bps.unwrap_or(0))
+    })
+    .await
+    .map_err(|e| Error::Volume(format!("join hatası: {}", e)))?
+}
+
 /// Bir sürücünün donanım profilini döner: bus tipi (NVMe/SATA/USB),
 /// medya tipi (SSD/HDD), üretici, model, seri, tipik okuma hızı.
 /// Win32 `IOCTL_STORAGE_QUERY_PROPERTY` kullanılır; admin gerekmez.
@@ -971,6 +989,7 @@ pub fn run() {
             pre_flight_volume,
             list_drives_cmd,
             probe_drive_hardware_cmd,
+            scan_unc_path,
             probe_volume,
             walk_volume,
             scan_full,
