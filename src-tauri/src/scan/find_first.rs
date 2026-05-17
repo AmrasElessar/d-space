@@ -27,6 +27,8 @@ use crate::scan::walk::{
 use crate::scan::NodeId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::Metadata;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, UNIX_EPOCH};
 use tracing::{debug, info, warn};
@@ -36,6 +38,53 @@ use tracing::{debug, info, warn};
 /// tipik hard link'ler (WinSxS DLL'leri, sistem ikilileri) genelde >= 64
 /// KB; daha küçükleri toplam içinde önemsiz.
 const HARDLINK_DEDUP_THRESHOLD: u64 = 64 * 1024;
+
+/// `FILE_ATTRIBUTE_COMPRESSED` — NTFS sıkıştırma bayrağı. winnt.h: 0x800.
+const FILE_ATTRIBUTE_COMPRESSED: u32 = 0x0000_0800;
+/// `FILE_ATTRIBUTE_SPARSE_FILE` — sparse dosya bayrağı. winnt.h: 0x200.
+const FILE_ATTRIBUTE_SPARSE_FILE: u32 = 0x0000_0200;
+
+/// Compressed/sparse dosyalar için `metadata.len()` MANTIKSAL boyutu döner
+/// (uncompressed, sparse'in nominal boyutu). `GetCompressedFileSizeW`
+/// **fiziksel** boyutu döner — gerçek disk doluluğu. Windows kurulumunda
+/// WinSxS + System32 yoğun sıkıştırılmıştır, bu fark %20-30 farkla
+/// "1 TB diskte 1.2 TB" gibi raporlara yol açar.
+///
+/// Yalnız `FILE_ATTRIBUTE_COMPRESSED | SPARSE` bayraklı dosyalar için
+/// ekstra Win32 çağrısı yapılır (per-file ~5µs); rastgele dosyalar için
+/// no-op.
+#[cfg(windows)]
+fn physical_file_size(path: &Path, metadata: &Metadata) -> u64 {
+    let attrs = metadata.file_attributes();
+    let logical = metadata.len();
+    if attrs & (FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_SPARSE_FILE) == 0 {
+        return logical;
+    }
+    // Yalnız sıkıştırılmış / sparse dosyalar için Win32 sorgu.
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetCompressedFileSizeW;
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut high: u32 = 0;
+    let low = unsafe { GetCompressedFileSizeW(PCWSTR(wide.as_ptr()), Some(&mut high)) };
+    // INVALID_FILE_SIZE = 0xFFFFFFFF; bunu kontrol etmek için GetLastError
+    // çağrısı gerekir ama çoğu durumda low != INVALID veya high > 0 yeterli
+    // sinyaldir. Hata durumunda mantıksal boyuta düşeriz.
+    if low == 0xFFFF_FFFF {
+        return logical;
+    }
+    ((high as u64) << 32) | (low as u64)
+}
+
+#[cfg(not(windows))]
+fn physical_file_size(_path: &Path, metadata: &Metadata) -> u64 {
+    metadata.len()
+}
 
 const FALLBACK_PROGRESS_INTERVAL: u64 = 500;
 
@@ -271,7 +320,12 @@ pub fn scan_find_first_with_progress(
             // kullanırız ki bilinmeyen reparse point'ler içine girmeyelim.
             let metadata = std::fs::symlink_metadata(&path).ok();
             let is_dir = file_type.is_dir();
-            let raw_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            // raw_size: compressed/sparse için fiziksel boyut
+            // (GetCompressedFileSizeW), diğerleri için metadata.len().
+            let raw_size = metadata
+                .as_ref()
+                .map(|m| physical_file_size(&path, m))
+                .unwrap_or(0);
             // Hard link dedupe: yalnız >=64 KB dosyalar için Win32
             // GetFileInformationByHandle ile dosya kimliğini sor. Çoklu
             // link varsa ikinci-vd görüldüğünde boyut = 0 (toplam disk
