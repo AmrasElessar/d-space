@@ -81,6 +81,16 @@ const CENTER_HEIGHT = 4;
 const RING_HEIGHT = 22;
 const GAP_RAD = 0.012;
 
+interface RisingAnim {
+  mesh: THREE.Mesh;
+  startTime: number;
+  duration: number;
+  baseY: number;
+  liftAmount: number;
+  node: TreeNode;
+  drillEmitted: boolean;
+}
+
 interface SceneState {
   renderer: THREE.WebGLRenderer;
   labelRenderer: CSS2DRenderer;
@@ -92,6 +102,7 @@ interface SceneState {
   wedges: THREE.Mesh[]; // tıklanabilir wedge mesh listesi
   labels: LabelHandle[];
   hovered: THREE.Mesh | null;
+  rising: RisingAnim | null;
   animation: number | null;
 }
 const sceneState = shallowRef<SceneState | null>(null);
@@ -150,8 +161,14 @@ function buildScene(
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = 0.1;
-  controls.minDistance = 80;
-  controls.maxDistance = 600;
+  controls.minDistance = 120;
+  controls.maxDistance = 520;
+  // Yatay eksende serbest döndürme (azimuth = 360° tam tur).
+  // Dikey eğim sınırlı: sunburst tepeden kuş bakışı (~27°) ile yandan
+  // eğik (~75°) arasında — kullanıcı "düz çember" veya direkt tepeden
+  // bakışta layer görme imkanını kaybetmez.
+  controls.minPolarAngle = Math.PI * 0.15;
+  controls.maxPolarAngle = Math.PI * 0.42;
   controls.target.set(0, 30, 0);
   controls.update();
 
@@ -182,8 +199,36 @@ function buildScene(
     wedges: [],
     labels: [],
     hovered: null,
+    rising: null,
     animation: null,
   };
+}
+
+/// Click animasyonu — tıklanan wedge baseY'den +liftAmount kadar
+/// easeOutQuad ile yükselir. Animasyon yarısında `drill` event'i emit
+/// edilir; parent yeni veri yükleyince `rebuildWedges` mesh'i siler ve
+/// alt detay yeni katman olarak belirir.
+function tickRisingAnim(state: SceneState) {
+  const r = state.rising;
+  if (!r) return;
+  const now = performance.now();
+  const t = Math.min(1, (now - r.startTime) / r.duration);
+  // easeOutQuad
+  const eased = 1 - (1 - t) * (1 - t);
+  r.mesh.position.y = r.baseY + r.liftAmount * eased;
+  const mat = r.mesh.material as THREE.MeshStandardMaterial;
+  const gray = Math.floor(eased * 80);
+  mat.emissive.setRGB(gray / 255, gray / 255, gray / 255);
+
+  // Animasyonun ~%60'ında drill event'ini emit et — parent yeni veriyi
+  // fetch ederken animasyon görsel olarak tamamlanır.
+  if (!r.drillEmitted && t >= 0.55) {
+    r.drillEmitted = true;
+    emit("drill", r.node);
+  }
+  if (t >= 1) {
+    state.rising = null;
+  }
 }
 
 function clearWedges(state: SceneState) {
@@ -349,10 +394,20 @@ function onPointerMove(state: SceneState, canvas: HTMLCanvasElement, e: PointerE
 
 function onPointerDown(state: SceneState, e: PointerEvent) {
   if (e.button !== 0) return;
-  if (state.hovered) {
-    const node = state.hovered.userData.node as TreeNode;
-    emit("drill", node);
-  }
+  if (!state.hovered || state.rising) return;
+  const mesh = state.hovered;
+  const node = mesh.userData.node as TreeNode;
+  // Hover state'i sıfırla — animasyon sırasında raycaster karışmasın.
+  setHover(state, null);
+  state.rising = {
+    mesh,
+    startTime: performance.now(),
+    duration: 320,
+    baseY: mesh.userData.baseY as number,
+    liftAmount: 28,
+    node,
+    drillEmitted: false,
+  };
 }
 
 function formatBytes(b: number): string {
@@ -381,6 +436,7 @@ onMounted(() => {
   // Animation loop
   const animate = () => {
     state.controls.update();
+    tickRisingAnim(state);
     updateLabelVisibility(state);
     state.renderer.render(state.scene, state.camera);
     state.labelRenderer.render(state.scene, state.camera);

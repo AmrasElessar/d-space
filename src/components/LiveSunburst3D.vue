@@ -76,6 +76,14 @@ const RING1_Y = CENTER_HEIGHT + 1;
 const RING2_Y = RING1_Y + RING_HEIGHT + LAYER_GAP;
 const GAP_RAD = 0.01;
 
+interface PulseAnim {
+  mesh: THREE.Mesh;
+  startTime: number;
+  duration: number;
+  baseY: number;
+  liftAmount: number;
+}
+
 interface SceneState {
   renderer: THREE.WebGLRenderer;
   labelRenderer: CSS2DRenderer;
@@ -87,6 +95,7 @@ interface SceneState {
   wedges: THREE.Mesh[];
   labels: LabelHandle[];
   hovered: THREE.Mesh | null;
+  pulse: PulseAnim | null;
   animation: number | null;
 }
 const sceneState = shallowRef<SceneState | null>(null);
@@ -170,8 +179,14 @@ function buildScene(
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = 0.1;
-  controls.minDistance = 80;
-  controls.maxDistance = 500;
+  controls.minDistance = 100;
+  controls.maxDistance = 420;
+  // Yatay eksende serbest döndürme (azimuth = 360° tam tur).
+  // Dikey eğim sınırlı: kullanıcı sunburst'ü tepeden kuş bakışı
+  // (~25°) ile yandan eğik (~75°) arasında görür; düz çember veya
+  // tepeden direk baktığında "kaybolma" yaşamaz.
+  controls.minPolarAngle = Math.PI * 0.15; // ~27° from top
+  controls.maxPolarAngle = Math.PI * 0.42; // ~75° from top (15° above horizon)
   controls.target.set(0, 22, 0);
   controls.update();
 
@@ -197,8 +212,26 @@ function buildScene(
     wedges: [],
     labels: [],
     hovered: null,
+    pulse: null,
     animation: null,
   };
+}
+
+/// Click feedback — tıklanan wedge baseY'den +liftAmount kadar yükselir,
+/// sonra baseY'ye geri döner (pulse, 380 ms). LiveSunburst3D tarama
+/// sırasında olduğu için gerçek drill backend yok; bu visual feedback.
+function tickPulseAnim(state: SceneState) {
+  const p = state.pulse;
+  if (!p) return;
+  const now = performance.now();
+  const t = Math.min(1, (now - p.startTime) / p.duration);
+  // Half-sin pulse: 0 → 1 → 0
+  const eased = Math.sin(t * Math.PI);
+  p.mesh.position.y = p.baseY + p.liftAmount * eased;
+  if (t >= 1) {
+    p.mesh.position.y = p.baseY;
+    state.pulse = null;
+  }
 }
 
 function clearWedges(state: SceneState) {
@@ -440,8 +473,20 @@ function onPointerMove(state: SceneState, canvas: HTMLCanvasElement, e: PointerE
   }
 }
 
+function onPointerDown(state: SceneState, e: PointerEvent) {
+  if (e.button !== 0 || !state.hovered || state.pulse) return;
+  state.pulse = {
+    mesh: state.hovered,
+    startTime: performance.now(),
+    duration: 380,
+    baseY: state.hovered.userData.baseY as number,
+    liftAmount: 14,
+  };
+}
+
 let resizeObs: ResizeObserver | null = null;
 let pointerMoveHandler: ((e: PointerEvent) => void) | null = null;
+let pointerDownHandler: ((e: PointerEvent) => void) | null = null;
 
 onMounted(() => {
   if (!canvasRef.value || !labelLayerRef.value) return;
@@ -454,6 +499,7 @@ onMounted(() => {
 
   const animate = () => {
     state.controls.update();
+    tickPulseAnim(state);
     updateLabelVisibility(state);
     state.renderer.render(state.scene, state.camera);
     state.labelRenderer.render(state.scene, state.camera);
@@ -468,6 +514,8 @@ onMounted(() => {
 
   pointerMoveHandler = (e) => onPointerMove(state, canvasRef.value!, e);
   canvasRef.value.addEventListener("pointermove", pointerMoveHandler);
+  pointerDownHandler = (e) => onPointerDown(state, e);
+  canvasRef.value.addEventListener("pointerdown", pointerDownHandler);
 });
 
 onBeforeUnmount(() => {
@@ -481,6 +529,9 @@ onBeforeUnmount(() => {
   if (resizeObs) resizeObs.disconnect();
   if (canvasRef.value && pointerMoveHandler) {
     canvasRef.value.removeEventListener("pointermove", pointerMoveHandler);
+  }
+  if (canvasRef.value && pointerDownHandler) {
+    canvasRef.value.removeEventListener("pointerdown", pointerDownHandler);
   }
 });
 
