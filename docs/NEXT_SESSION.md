@@ -2,10 +2,11 @@
 
 # D-Space — Sonraki Oturum Yol Planı
 
-> **Son güncelleme:** 2026-05-17 (Sprint 3.8.1 USN baseline walker + 3.6 Tauri updater + 3.5 Playwright iskeleti tamam — v0.2.0-beta tag adayı)
-> **Şu anki sürüm:** `v0.2.0-beta` adayı — manifest version bump'lar yapıldı, CHANGELOG güncel, **maintainer pubkey gen yapacak** sonra tag çekilebilir
+> **Son güncelleme:** 2026-05-17 13:55 — v0.2.0-beta polish dalgası tamam
+> **Şu anki sürüm:** `v0.2.0-beta` adayı — pubkey aktif, 15 commit ahead origin, tag çekmeye hazır
 > **Hedef:** `v0.2.0-beta` → `v0.3.0` → `v1.0.0-stable`
-> **Test sayısı:** 117 Rust + 34 frontend = **151 passing** (+ 9 vss-gated)
+> **Test sayısı:** 124 Rust + 34 frontend = **158 passing** (+ 9 vss-gated)
+> **2026-05-17 polish dalgası:** info popover, 3-kolon layout, tarama durdur/iptal, disk hardware rozeti, hard link dedup, sunburst 3D + tıklama detayı, tema pill renkleri light tema uyumlu, canlı log scroll + tooltip
 
 Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 1. Git pull + son durumu doğrula
@@ -14,28 +15,26 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 ---
 
-## 🟢 ŞU AN: v0.2.0-beta tag adayı — maintainer pubkey + push
+## 🟢 ŞU AN: v0.2.0-beta tag — push + tag bekliyor
 
-**Yapılması gerekenler** (kullanıcı eylemi):
+**Updater pubkey aktif** (commit 2714c79), private/password Secrets'ta.
+**Kalan adımlar** (kullanıcı eylemi):
 
-1. **Updater pubkey gen** (Bölüm 21.4 — `RELEASE_CHECKLIST.md §2.2`)
-   ```powershell
-   pnpm tauri signer generate -w $HOME/.dspace/updater-private.key
-   ```
-   * Public key çıktısını `src-tauri/tauri.conf.json` `plugins.updater.pubkey` yerine yapıştır.
-   * Private key + password GitHub Secrets'a (`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
-2. **Origin push** (12 commit bekliyor)
+1. **Origin push** (15 commit bekliyor)
    ```powershell
    git push origin main
    ```
-3. **Tag + release**
+2. **Tag + release**
    ```powershell
    git tag v0.2.0-beta && git push origin v0.2.0-beta
    ```
    `.github/workflows/release.yml` MSI/NSIS + latest.json üretir.
 
-> **Sıralama kararı (2026-05-17):** 3.8.1 USN baseline walker → 3.6 updater
-> → 3.5 e2e scaffold sırayla yapıldı. v0.2.0-beta artık ship-able.
+> **2026-05-17 polish dalgası özet:** kullanıcı tema/dil/UX feedback'i ile
+> info popover pattern, 3-kolon dense layout, disk hardware probe (IOCTL),
+> hard link dedup (1 TB diskte 1.2 TB raporu fix), tarama durdur/iptal,
+> canlı log scroll + bold filename, sunburst 3D + click detay, tüm
+> pill'lerin light tema uyumu. Tüm değişiklikler v0.2.0-beta'ya dahil.
 
 ### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar) ✅ TAMAMLANDI (2026-05-16)
 - **Sonuç:** App grid `280px minmax(0, 1fr)` — sticky sol sidebar + akıcı orta workspace; workspace içindeki 2-kolon (SnapshotPanel + DuplicatePanel/Detail) korundu, görsel olarak toplam 3-kolon.

@@ -61,8 +61,48 @@ gelebilir.
   backend bağımsız UI akış doğrulama.
 - `.github/workflows/e2e.yml` ubuntu runner; v0.2.0 sonrası required.
 
+**Disk donanım profili (2026-05-17 polish):**
+- `IOCTL_STORAGE_QUERY_PROPERTY` ile her sürücü için bus tipi (NVMe /
+  SATA / USB / SAS / SCM), medya tipi (SSD / HDD), üretici, model,
+  seri, tipik okuma hızı (MB/s, bus tipinden türetilmiş).
+- VolumeSidebar her drive kartında küçük rozet (örn. "NVMe SSD ~3500
+  MB/sn") + üretici/model satırı.
+
+**Tarama durdur/iptal (2026-05-17 polish):**
+- `ScanCancel(Arc<AtomicBool>)` Tauri state. `scan_cancel` komutu
+  bayrağı set eder, walker periyodik kontrol eder, `scan-cancelled`
+  hatası ile bail.
+- ScanProgress overlay'ine "Taramayı durdur" pill butonu — tıklanınca
+  sessizce kapatır.
+
+**Hard link dedup (2026-05-17 fix):**
+- Standart Mod `find_first` walker NTFS file_index tabanlı dedupe ekledi
+  (Win32 GetFileInformationByHandle). 64 KB+ dosyalar için aynı fiziksel
+  veri ikinci görüldüğünde data_size = 0 → toplam disk doluluğunu aşmaz.
+  Önceki bug: 1 TB diskte 1.2 TB rapor (WinSxS hard link'leri).
+
+**Tema + UX iyileştirmeleri (2026-05-17 polish):**
+- Info popover pattern (`InfoButton.vue`): başlık yanında ⓘ → tıkla,
+  paragraf açılır. Sürekli görünen intro paragrafları kaldırıldı.
+- 3-kolon workspace (Snapshot | Duplicate | Detail) >1600px'de yan
+  yana; 960-1600px arası 2-kolon; <960 tek kolon.
+- Canlı sunburst: Tableau 10 palet + SVG radial gradient gloss + drop
+  shadow → hafif 3D. Hover scale 1.025 + brightness. Click → seçili
+  wedge halo + alt panelde detay chip'i.
+- Pill renkleri (pill-ok / pill-warn / pill-frozen, score tier'lar,
+  status pill, tier pill, lock pill) per-tema text override'larıyla
+  light/dark her ikisinde 5:1+ kontrast.
+- Probe-btn dark teal → vibrant blue (#2563eb).
+- Bekleyen Silmeler kuyruğunda enter/leave/move animasyonları.
+- Tarama canlı log: bold dosya adı + üst klasör iki satır, scrollbar,
+  her path için tooltip, satır arası dashed border.
+- Locale leak fix: tüm sabit TR metinler i18n'e taşındı (Staging
+  Kuyruğu → Bekleyen Silmeler, "Forensic ledger" → "denetim defteri",
+  "Drilldown" → "Klasör Görseli", score tier label'ları). `toLocaleString`
+  sabit "tr-TR" çağrıları locale-aware (TR/EN otomatik).
+
 **Test:**
-- 117 Rust default (+9 vss-gated) + 34 frontend = **151 test passing**
+- 124 Rust default (+9 vss-gated) + 34 frontend = **158 test passing**
   (v0.1.0-alpha: 79).
 - Cargo clippy strict + cargo fmt + vue-tsc + vite build temiz.
 
