@@ -150,9 +150,18 @@ function formatEta(sec: number | null): string {
   return `~${m}:${s.toString().padStart(2, "0")} ${mLabel}`;
 }
 
-function truncatePath(p: string, max = 60): string {
+function truncatePath(p: string, max = 64): string {
   if (p.length <= max) return p;
-  return "…" + p.slice(-max + 1);
+  // Sonu (dosya adı) önemli — başı kıs, sonu göster.
+  return "…" + p.slice(-(max - 1));
+}
+
+// Path'i son segment (dosya adı) + üst klasör halinde böl. Log satırı
+// iki katmanlı: üst yumuşak renkte klasör yolu, alt güçlü renkte isim.
+function splitPath(p: string): { parent: string; name: string } {
+  const idx = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  if (idx < 0) return { parent: "", name: p };
+  return { parent: p.slice(0, idx), name: p.slice(idx + 1) };
 }
 </script>
 
@@ -223,9 +232,18 @@ function truncatePath(p: string, max = 60): string {
               <li
                 v-for="entry in recentLog"
                 :key="entry.key"
-                class="scan-log-row mono"
+                class="scan-log-row"
               >
-                {{ truncatePath(entry.path, 64) }}
+                <span class="log-name mono">
+                  {{ splitPath(entry.path).name }}
+                </span>
+                <span
+                  v-if="splitPath(entry.path).parent"
+                  class="log-parent mono"
+                  :title="entry.path"
+                >
+                  {{ truncatePath(splitPath(entry.path).parent, 50) }}
+                </span>
               </li>
               <li
                 v-if="recentLog.length === 0"
@@ -259,7 +277,7 @@ function truncatePath(p: string, max = 60): string {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 28px 36px;
-  max-width: 820px;
+  max-width: 1100px;
   width: calc(100% - 32px);
   box-shadow: 0 24px 64px var(--shadow);
   display: flex;
@@ -399,26 +417,27 @@ function truncatePath(p: string, max = 60): string {
 .scan-log {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  max-height: 180px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  max-height: 260px;
   overflow: hidden;
 }
 
 .scan-log-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .scan-log-title {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--muted);
+  font-weight: 600;
 }
 
 .dot-live {
@@ -448,34 +467,61 @@ function truncatePath(p: string, max = 60): string {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   overflow: hidden;
 }
 
 .scan-log-row {
-  font-size: 11px;
-  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
   opacity: 0.85;
+  transition: opacity 0.2s linear;
+  padding: 2px 4px;
+  border-left: 2px solid transparent;
+  border-radius: 2px;
+}
+
+/* En son taranan satır: parlak + soldan vurgu çubuğu. */
+.scan-log-row:nth-child(1) {
+  opacity: 1;
+  border-left-color: #24c8db;
+  background: color-mix(in srgb, #24c8db 8%, transparent);
+}
+
+/* Eski satırları fade'le. */
+.scan-log-row:nth-child(n + 4) {
+  opacity: 0.7;
+}
+.scan-log-row:nth-child(n + 7) {
+  opacity: 0.45;
+}
+.scan-log-row:nth-child(n + 9) {
+  opacity: 0.3;
+}
+
+.log-name {
+  font-size: 13px;
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: opacity 0.2s linear;
+  line-height: 1.3;
 }
 
-.scan-log-row:nth-child(1) {
-  color: var(--fg);
-  opacity: 1;
-}
-.scan-log-row:nth-child(n + 5) {
-  opacity: 0.55;
-}
-.scan-log-row:nth-child(n + 9) {
-  opacity: 0.35;
+.log-parent {
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
 }
 
 .log-row-enter-from {
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateY(-8px);
 }
 
 .log-row-leave-to {
@@ -485,7 +531,7 @@ function truncatePath(p: string, max = 60): string {
 
 .log-row-enter-active,
 .log-row-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
 .log-row-move {
