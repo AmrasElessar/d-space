@@ -175,6 +175,43 @@ pub fn capture_snapshot(tree: &ScanTree, conn: &mut Connection) -> Result<Snapsh
     })
 }
 
+/// Bölüm 8.4 — saklama politikası. Free tier default 90 gün, premium
+/// 365 gün; kullanıcı `settings.snapshot_retain_days` ile ezebilir.
+pub const DEFAULT_RETAIN_DAYS: i64 = 90;
+pub const MIN_RETAIN_DAYS: i64 = 7;
+
+/// `captured_at < (now - retain_days * 86400)` olan snapshot'ları siler.
+/// `snapshot_entries` foreign key cascade ile otomatik temizlenir
+/// (migration 0001 `ON DELETE CASCADE`).
+///
+/// Dönüş: silinen snapshot sayısı. retain_days < MIN_RETAIN_DAYS olursa
+/// MIN_RETAIN_DAYS'e clamp edilir (kullanıcı yanlışlıkla 0 girip tüm
+/// snapshot'ları yok etmesin — Bölüm 22.6 dark pattern yok ilkesi).
+pub fn purge_old_snapshots(conn: &Connection, retain_days: i64) -> Result<u64> {
+    let days = retain_days.max(MIN_RETAIN_DAYS);
+    let cutoff = now_unix() - days * 86_400;
+    let n = conn
+        .execute(
+            "DELETE FROM snapshots WHERE captured_at < ?1",
+            params![cutoff],
+        )
+        .map_err(|e| Error::Snapshot(format!("purge_old: {}", e)))?;
+    if n > 0 {
+        info!(
+            removed = n,
+            retain_days = days,
+            cutoff,
+            "snapshot retention: eski kayıtlar silindi"
+        );
+    } else {
+        debug!(
+            retain_days = days,
+            "snapshot retention: silinecek kayıt yok"
+        );
+    }
+    Ok(n as u64)
+}
+
 /// Son 50 snapshot'ı captured_at DESC sırasında listeler. `dir_count` ve
 /// `entry_count` snapshot_entries'ten COUNT ile hesaplanır (snapshots
 /// tablosunda saklanmıyor — v0.1 schema).
@@ -335,6 +372,88 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hash_len, 32);
+    }
+
+    #[test]
+    fn purge_old_snapshots_removes_only_old() {
+        let conn = fresh_conn();
+        let now = now_unix();
+        // 3 snapshot: now-100gün, now-30gün, şimdi (90 gün retention için
+        // yalnız ilki silinmeli).
+        let ts_old = now - 100 * 86_400;
+        let ts_recent = now - 30 * 86_400;
+        let ts_fresh = now;
+        for ts in [ts_old, ts_recent, ts_fresh] {
+            conn.execute(
+                "INSERT INTO snapshots
+                    (volume_id, captured_at, total_size_bytes, file_count, schema_version)
+                 VALUES ('C:\\', ?1, 0, 0, 1)",
+                params![ts],
+            )
+            .unwrap();
+        }
+
+        let removed = purge_old_snapshots(&conn, 90).unwrap();
+        assert_eq!(removed, 1, "100 günden eski tek snapshot silinmeli");
+
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 2);
+    }
+
+    #[test]
+    fn purge_clamps_to_min_retain() {
+        let conn = fresh_conn();
+        let now = now_unix();
+        // 5 gün önce (MIN_RETAIN_DAYS=7 altında — silinmemeli).
+        let ts_recent = now - 5 * 86_400;
+        conn.execute(
+            "INSERT INTO snapshots
+                (volume_id, captured_at, total_size_bytes, file_count, schema_version)
+             VALUES ('C:\\', ?1, 0, 0, 1)",
+            params![ts_recent],
+        )
+        .unwrap();
+
+        // retain_days=1 kullanıcı yanlışlığını clamp et — 7 gün korunur.
+        let removed = purge_old_snapshots(&conn, 1).unwrap();
+        assert_eq!(removed, 0, "MIN_RETAIN_DAYS clamp koruması");
+    }
+
+    #[test]
+    fn purge_cascades_to_snapshot_entries() {
+        let conn = fresh_conn();
+        let now = now_unix();
+        let ts_old = now - 200 * 86_400;
+        conn.execute(
+            "INSERT INTO snapshots
+                (volume_id, captured_at, total_size_bytes, file_count, schema_version)
+             VALUES ('C:\\', ?1, 0, 0, 1)",
+            params![ts_old],
+        )
+        .unwrap();
+        let sid: i64 = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO snapshot_entries
+                (snapshot_id, path_hash, path, size_bytes, modified_at, is_dir)
+             VALUES (?1, randomblob(32), 'C:\\old\\foo', 100, 0, 1)",
+            params![sid],
+        )
+        .unwrap();
+        // FK cascade için PRAGMA aktif olmalı
+        conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        let removed = purge_old_snapshots(&conn, 90).unwrap();
+        assert_eq!(removed, 1);
+
+        let orphan_entries: i64 = conn
+            .query_row("SELECT COUNT(*) FROM snapshot_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            orphan_entries, 0,
+            "snapshot_entries FK cascade ile silinmeli"
+        );
     }
 
     #[test]

@@ -13,7 +13,10 @@
 pub mod capture;
 pub mod delta;
 
-pub use capture::{capture_snapshot, list_snapshots, SnapshotMeta};
+pub use capture::{
+    capture_snapshot, list_snapshots, purge_old_snapshots, SnapshotMeta, DEFAULT_RETAIN_DAYS,
+    MIN_RETAIN_DAYS,
+};
 pub use delta::{compute_delta, DeltaEntry, DeltaResult, PathEntry};
 
 /// Snapshot tablosundaki PRIMARY KEY tipiyle uyumlu — i64.

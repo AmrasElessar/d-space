@@ -514,6 +514,29 @@ fn list_snapshots(db_state: tauri::State<'_, DbState>) -> Result<Vec<SnapshotMet
     crate::snapshot::list_snapshots(&conn)
 }
 
+/// Sprint 4.2 (Bölüm 8.4) — eski snapshot'ları sil. `retain_days` None
+/// ise settings.snapshot_retain_days okunur, o da yoksa
+/// `DEFAULT_RETAIN_DAYS` (90) kullanılır. MIN_RETAIN_DAYS (7) altı
+/// otomatik clamp edilir (Bölüm 22.6 dark pattern yok).
+#[tauri::command]
+fn cleanup_old_snapshots(
+    retain_days: Option<i64>,
+    db_state: tauri::State<'_, DbState>,
+) -> Result<u64> {
+    let conn = db_state
+        .conn
+        .lock()
+        .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
+    let effective = retain_days.unwrap_or_else(|| {
+        get_setting(&conn, "snapshot_retain_days")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(crate::snapshot::DEFAULT_RETAIN_DAYS)
+    });
+    crate::snapshot::purge_old_snapshots(&conn, effective)
+}
+
 /// Bölüm 11.1 — tek dosya için cloud placeholder probe. GetFileAttributesW
 /// ile FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS / RECALL_ON_OPEN / REPARSE_POINT
 /// bayraklarını okur. spawn_blocking — Win32 senkron çağrı.
@@ -760,6 +783,23 @@ pub fn run() {
             }
             Err(e) => warn!(?e, "WAL recovery hatası"),
         }
+        // Sprint 4.2 — açılışta retention cleanup. Settings'ten okunur,
+        // yoksa 90 gün default. Sessizce çalışır; hata olursa loglanır
+        // (uygulama açılışını bloklamaz).
+        let retain = get_setting(&conn, "snapshot_retain_days")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(crate::snapshot::DEFAULT_RETAIN_DAYS);
+        match crate::snapshot::purge_old_snapshots(&conn, retain) {
+            Ok(0) => {}
+            Ok(n) => info!(
+                removed = n,
+                retain_days = retain,
+                "açılış snapshot retention"
+            ),
+            Err(e) => warn!(?e, "açılış retention cleanup hatası"),
+        }
     }
 
     tauri::Builder::default()
@@ -793,6 +833,7 @@ pub fn run() {
             get_db_info,
             capture_snapshot,
             list_snapshots,
+            cleanup_old_snapshots,
             snapshot_delta,
             find_duplicates_cmd,
             probe_locked_file_cmd,
