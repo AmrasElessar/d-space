@@ -1,6 +1,6 @@
 [package]
 name = "dspace"
-version = "0.1.0"
+version = "0.2.0-beta"
 description = "D-Space — Windows için akıllı disk analiz ve geri kazanım platformu"
 authors = ["D-Space contributors"]
 license = "GPL-3.0-or-later"

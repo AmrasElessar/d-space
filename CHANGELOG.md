@@ -4,6 +4,84 @@
 
 Spec v1.4 dondurulmuş. Implementation farkı `docs/DISCOVERY_LOG.md`'de.
 
+## [v0.2.0-beta] — 2026-05-17
+
+İkinci public release — **Beta kanalı**. Hâlâ unsigned (EV cert Bölüm 18.2
+stable hedefi), ama auto-updater plugin'i etkin; sonraki sürümler imzalı
+gelebilir.
+
+### Yapıldı
+
+**Görselleştirme (Pillar 2 olgunlaşma):**
+- Üç-kolon workspace (Sprint 3.1c) — sol VolumeSidebar (drive listesi +
+  kullanım barı + status pill) + orta workspace + sağ detay paneli;
+  responsive `<960px` üst sticky.
+- Canlı tarama Sunburst (Sprint 3.7) — `ScanProgress` overlay split
+  layout, sol 360×360 SVG arc (saf hand-rolled, 2 halka), sağ sayısal
+  stats; backend her 10k entry'de `partial_tree` event'i emit eder.
+- Light/dark/auto tema toggle (Bölüm 9.5).
+
+**Hızlı arama (Discovery #005 / Bölüm 5.6):**
+- NTFS USN Journal index katmanı (Sprint 3.8 + 3.8.1) — `usn_index` +
+  `usn_watermark` SQLite tabloları, real-time delta watcher, `Everything`
+  benzeri substring arama.
+- Baseline walker (`FSCTL_ENUM_USN_DATA` + `USN_RECORD_V2` parser) tüm
+  MFT'yi 1 MB tampon ile gezer; watermark journal_id + next_usn'i
+  kaydeder, sonraki açılışlarda yalnız delta.
+- `IndexSearchBar` sticky üst kutu, Ctrl+F kısayolu, 150 ms debounce,
+  top-50 substring eşleşme + opsiyonel `WITH RECURSIVE` full_path.
+- Admin yoksa graceful: `mode="needs_admin"` rozeti.
+
+**VSS pool (Pillar 5 ek):**
+- Sprint 2H.3 `IVssBackupComponents` snapshot pool — `winapi 0.3.9`
+  COM köprüsü (Discovery #002 çözüldü), worker thread + per-volume
+  dedupe + lease renewal + reaper.
+- Default kapalı (`vss` Cargo feature), opt-in build.
+- Bölüm 34.5.4 hash-time + 34.5.6 reference counting davranışı.
+
+**Auto-updater (Bölüm 21.4) — Sprint 3.6:**
+- `tauri-plugin-updater` + `tauri-plugin-process` etkin;
+  `tauri.conf.json` plugins.updater GitHub Releases latest.json
+  endpoint'ine bağlı; release workflow `includeUpdaterJson: true`.
+- `UpdateNotification.vue` — header'da "Güncelleme kontrol et"
+  butonu; modal (sürüm + notlar + indirme progress) → relaunch.
+- Hata tip ayrımı: imza/ağ/diğer (TR + EN i18n).
+- **Ed25519 pubkey placeholder** — maintainer ilk gerçek beta release
+  öncesi `pnpm tauri signer generate` ile üretmeli (RELEASE_CHECKLIST §2).
+
+**Cloud placeholder detection (Bölüm 11.1):**
+- Win32 `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` bayrak detection — UI'da
+  ☁ rozeti gösterir.
+
+**E2E altyapı (Sprint 3.5):**
+- Playwright dev dep + `playwright.config.ts` (web + webdriver iki proje).
+- 5 smoke senaryo: onboarding, görsel mod toggle, IndexSearchBar, tema
+  cycle, update check fallback.
+- `e2e/fixtures/tauri-mock.ts` Tauri IPC stub'ı — Vite dev server üzerinde
+  backend bağımsız UI akış doğrulama.
+- `.github/workflows/e2e.yml` ubuntu runner; v0.2.0 sonrası required.
+
+**Test:**
+- 117 Rust default (+9 vss-gated) + 34 frontend = **151 test passing**
+  (v0.1.0-alpha: 79).
+- Cargo clippy strict + cargo fmt + vue-tsc + vite build temiz.
+
+### Bilinen sınırlar (sonraki sprint'lerde)
+
+- **Kod imzasız** — SmartScreen "publisher unknown" uyarısı sürer (EV
+  cert v1.0).
+- **Updater pubkey placeholder** — gerçek yayında imza doğrulama hatası
+  vermesin diye maintainer üretmeli.
+- **Duplicate v0.2 yok** — head-hash prefilter + rayon paralel (Faz 4.1).
+- **Snapshot retention yok** — 90 gün cleanup + streaming delta loader
+  (Faz 4.2).
+- **Network scanner yok** — UNC path scan + bandwidth-aware (Faz 4.4).
+- **ML model yok** — TFLite altyapı hazır, model v0.3'te.
+- **Tray live monitor yok** — sadece launcher/quit (Faz 5.1).
+- **EV cert yok** — SmartScreen reputation v1.0 yolunda (Faz 5.4).
+
+---
+
 ## [v0.1.0-alpha] — 2026-05-15
 
 İlk public alpha. **Unsigned** MSI/NSIS — Windows SmartScreen "publisher

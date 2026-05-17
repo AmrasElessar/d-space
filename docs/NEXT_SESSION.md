@@ -2,10 +2,10 @@
 
 # D-Space — Sonraki Oturum Yol Planı
 
-> **Son güncelleme:** 2026-05-16 (Sprint 3.7 Live Sunburst + 3.8 USN Index tamam)
-> **Şu anki sürüm:** `v0.1.0-alpha` + 2H.3 (VSS) + 3.1c (3-kolon) + 3.7 (canlı) + 3.8 (USN)
+> **Son güncelleme:** 2026-05-17 (Sprint 3.8.1 USN baseline walker + 3.6 Tauri updater + 3.5 Playwright iskeleti tamam — v0.2.0-beta tag adayı)
+> **Şu anki sürüm:** `v0.2.0-beta` adayı — manifest version bump'lar yapıldı, CHANGELOG güncel, **maintainer pubkey gen yapacak** sonra tag çekilebilir
 > **Hedef:** `v0.2.0-beta` → `v0.3.0` → `v1.0.0-stable`
-> **Test sayısı:** 105 Rust + 27 frontend = **132 passing**
+> **Test sayısı:** 117 Rust + 34 frontend = **151 passing** (+ 9 vss-gated)
 
 Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 1. Git pull + son durumu doğrula
@@ -14,13 +14,28 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 
 ---
 
-## 🟢 ŞU AN: v0.1.0-alpha → v0.2.0-beta yolundayım
+## 🟢 ŞU AN: v0.2.0-beta tag adayı — maintainer pubkey + push
 
-**Sıradaki 2 sprint** (3.1c + 3.7 + 3.8 main'e cherry-pick'lendi, push bekliyor):
+**Yapılması gerekenler** (kullanıcı eylemi):
 
-> **Sıralama kararı (2026-05-16):** 3.7 ve 3.8 önce yapıldı — canlı görsel +
-> Everything benzeri index kullanıcı için en görünür kazanım. Sıradaki 3.5
-> (Playwright e2e) ve 3.6 (Tauri updater) release altyapısı.
+1. **Updater pubkey gen** (Bölüm 21.4 — `RELEASE_CHECKLIST.md §2.2`)
+   ```powershell
+   pnpm tauri signer generate -w $HOME/.dspace/updater-private.key
+   ```
+   * Public key çıktısını `src-tauri/tauri.conf.json` `plugins.updater.pubkey` yerine yapıştır.
+   * Private key + password GitHub Secrets'a (`TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
+2. **Origin push** (12 commit bekliyor)
+   ```powershell
+   git push origin main
+   ```
+3. **Tag + release**
+   ```powershell
+   git tag v0.2.0-beta && git push origin v0.2.0-beta
+   ```
+   `.github/workflows/release.yml` MSI/NSIS + latest.json üretir.
+
+> **Sıralama kararı (2026-05-17):** 3.8.1 USN baseline walker → 3.6 updater
+> → 3.5 e2e scaffold sırayla yapıldı. v0.2.0-beta artık ship-able.
 
 ### Sprint 3.1c — Gerçek üç-kolon (sol volume sidebar) ✅ TAMAMLANDI (2026-05-16)
 - **Sonuç:** App grid `280px minmax(0, 1fr)` — sticky sol sidebar + akıcı orta workspace; workspace içindeki 2-kolon (SnapshotPanel + DuplicatePanel/Detail) korundu, görsel olarak toplam 3-kolon.
@@ -53,38 +68,39 @@ Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 - **Test:** +25 Rust (USN parse_v2 + apply_delta upsert/delete + detect_wraparound + persist roundtrip + index_search + watcher shutdown) + +6 frontend (mount, empty, debounce single+rapid, click emit, needs_admin). 105 Rust + 27 frontend = **132 passing**.
 - **Discovery Log #005** detaylı yazıldı: FSCTL kodları (`0x000900B3` / `0x000900BB`), USN_RECORD_V2 layout, windows-rs 0.61 const eksikliği (hand-roll), wraparound semantiği, migration 0003 sapması.
 
-### Sprint 3.8.1 — USN baseline walker (kalan iş, sonraki minör sprint)
-- **Bağlam:** 3.8 v0.1 stub'da `index_build` gerçek `FSCTL_ENUM_USN_DATA` walker yerine status döndürüyor. Persist/delta/wraparound/watcher altyapısı tam test edilmiş, tek eksik baseline binary stream walker.
-- **Kapsam:**
-  - `src-tauri/src/index/usn.rs` — `enumerate_baseline(volume_handle, buffer_size)` fonksiyonu: `DeviceIoControl` döngüsü, `USN_RECORD_V2` parse, `apply_delta` ile SQLite flush.
-  - 1 MB buffer, sayfa sayfa ilerle (`NextUsn` field), end-of-data tespit.
-  - Race test: baseline sürerken watcher delta'ları geldiğinde idempotent davranış (`apply_delta` UPSERT zaten kapsıyor).
-- **Boyut:** ~200 Rust + 2-3 integration test.
-- **Risk:** Orta. Tek IO yolu ama buffer boyutu / wraparound edge case'leri test gerekir.
+### Sprint 3.8.1 — USN baseline walker ✅ TAMAMLANDI (2026-05-17)
+- **Sonuç:** `src-tauri/src/index/baseline.rs` (~290 src + ~315 test); saf
+  parser helper'lar (`parse_journal_data`, `parse_enum_buffer`,
+  `build_enum_request`, `records_to_entries`, `apply_baseline_batch`) +
+  `cfg(windows)` IO (`enumerate_volume_baseline`): `CreateFileW(\\.\X:)` +
+  `FSCTL_QUERY_USN_JOURNAL` + `FSCTL_ENUM_USN_DATA` döngüsü 1 MB tampon,
+  ERROR_HANDLE_EOF EOF; bitince watermark yazılır.
+- **Cargo Win32_System_IO** eklendi (DeviceIoControl).
+- **`lib.rs::index_build`** stub değiştirildi → gerçek walker.
+- **Test:** +12 (parse + request layout + apply_baseline_batch + race
+  idempotency + watermark roundtrip). 117 Rust toplam.
 
-### Sprint 3.5 — Playwright e2e altyapı (sonra)
-- **Hedef:** `tauri-driver` + `playwright` ile 5 smoke senaryo:
-  1. Onboarding akışı (3-slide → mod seç → Başla)
-  2. C: taraması başlat → progress overlay → drilldown açılır
-  3. Görsel mod değişimi (Ctrl+1/2/3/4)
-  4. Sağ panel detayı dolu kalsın (dosya tıkla → detay görünür)
-  5. Staging gönder → undo + index search
-- **Agent gerekli:** tauri-driver setup ve ilk Playwright config için research agent.
-- **CI workflow'a ekle:** windows-latest runner üzerinde e2e job.
+### Sprint 3.5 — Playwright e2e altyapı ✅ SCAFFOLD (2026-05-17)
+- **Sonuç:** `@playwright/test` dev dep + `playwright.config.ts` (web +
+  webdriver iki proje) + `e2e/fixtures/tauri-mock.ts` (Tauri IPC stub) +
+  5 smoke spec (onboarding, view-modes, quick-search, theme-toggle,
+  update-check). `.github/workflows/e2e.yml` ubuntu web kanalı,
+  `continue-on-error: true`.
+- **v0.2.0 sonrası iş:** `webdriver` projesini `cargo install
+  tauri-driver` + `pnpm tauri build --debug` ile aktive et; e2e CI gate'i
+  required'a taşı. Şu an mock stub'ları gerçek IPC akışını birebir
+  yansıtmıyor — `__TAURI_INTERNALS__` küçük tweak gerekebilir.
 
-### Sprint 3.6 — Tauri updater gerçek (sonra)
-- **Mevcut:** `tauri.conf.json`'da updater placeholder (`active: false`).
-- **Hedef:** `tauri-plugin-updater` install + Ed25519 keygen + GitHub releases `latest.json` otomasyonu + UI dialog.
-- **Adımlar (RELEASE_CHECKLIST.md §2'den):**
-  ```bash
-  pnpm add @tauri-apps/plugin-updater
-  cargo add tauri-plugin-updater --manifest-path src-tauri/Cargo.toml
-  pnpm tauri signer generate -w ~/.dspace/updater-private.key
-  ```
-  Private key → GitHub Secret. Public key → `tauri.conf.json`. Release workflow'a `includeUpdaterJson: true` ekle.
-- **Test:** v0.2.0-beta tag çek, eski v0.1.0-alpha kurulumdan auto-update çalıştığını doğrula.
-
-**Kalan 3 sprint (3.8.1 + 3.5 + 3.6) tamamlanınca:** `git tag v0.2.0-beta && git push --tags` → release workflow MSI/NSIS + latest.json üretir.
+### Sprint 3.6 — Tauri updater gerçek ✅ TAMAMLANDI (2026-05-17)
+- **Sonuç:** `tauri-plugin-updater` + `tauri-plugin-process` etkin;
+  `tauri.conf.json` plugins.updater GitHub Releases latest.json
+  endpoint'ine bağlı; release workflow `includeUpdaterJson: true` +
+  `TAURI_SIGNING_PRIVATE_KEY` secrets passthrough.
+- **`src/components/UpdateNotification.vue`** header butonu + modal
+  (sürüm + notlar + indirme progress) → `relaunch()`. Hata tip
+  ayrımı (imza/ağ/diğer) i18n. +7 vitest test.
+- **Pubkey:** PLACEHOLDER (`REPLACE_BEFORE_RELEASE`). Maintainer
+  `pnpm tauri signer generate` ile üretmeli — RELEASE_CHECKLIST.md §2.2.
 
 ---
 
@@ -180,16 +196,20 @@ git tag -l --sort=-creatordate | head -5
 
 ---
 
-## 🚦 Sıradaki sprint kararı: **3.8.1 USN baseline walker** (önerilen)
+## 🚦 Sıradaki sprint kararı: **Faz 4.1 Duplicate v0.2** (önerilen)
 
-3.7 + 3.8 paralel agent'larda tamamlandı (2026-05-16). v0.2.0-beta'ya 3
-sprint kaldı: 3.8.1 (USN baseline walker), 3.5 (Playwright e2e), 3.6
-(Tauri updater).
+v0.2.0-beta tag adayı hazır (3.8.1 + 3.6 + 3.5 scaffold tamam, 2026-05-17).
+Maintainer pubkey gen + push + tag çekince beta yayınlanır. Sonraki
+oturum **Faz 4** başlar.
 
-**Önerilen sıra:** önce **3.8.1** — Sprint 3.8'in v0.1 stub'ını gerçek
-walker ile tamamla (kullanıcı deneyimi tam etkili olur: ilk açılışta
-index doğsun, sonraki açılışlarda 0 sn render). Sonra **3.5/3.6** release
-altyapısı için.
+**Önerilen sıra:**
+1. **4.1 Duplicate v0.2** — head-hash prefilter + rayon paralel. En çok
+   görünür kazanım (100 GB <60 sn hedef).
+2. **4.3 Test piramidi** — synthetic NTFS VHDX + critical edge cases. 
+   200+ Rust test hedefine doğru.
+3. **4.2 Snapshot retention** + **4.5 LOD/animation** + **4.4 Network
+   scanner** + **4.6 ReFS** — paralelleştirilebilir.
 
-Alternatif: kullanıcı önce beta release hissetmek isterse **3.6 updater**
-yapılabilir (USN index v1 stub haliyle de çalışır, search devre dışı).
+Alternatif (kullanıcı bir polish dalgası ister):
+* **5.1 Tray live monitor** + **5.3 UX polish** — alpha-beta arası
+  kullanıcı algısı sıçraması.
