@@ -116,6 +116,47 @@ async fn list_drives_cmd() -> Result<Vec<VolumeInfo>> {
         .map_err(|e| crate::error::Error::Volume(format!("join hatası: {}", e)))?
 }
 
+/// Bölüm 13.2 Tray Live Monitor — `tray-monitor-alert` event payload.
+#[derive(Debug, Clone, Serialize)]
+pub struct TrayMonitorAlert {
+    pub drive_letter: String,
+    pub volume_label: String,
+    pub usage_percent: u32,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+}
+
+/// Tray monitor polling interval (varsayılan 30 dk). Settings key:
+/// `tray_monitor_interval_minutes`.
+const TRAY_MONITOR_DEFAULT_INTERVAL_MIN: u64 = 30;
+/// Disk doluluğu eşiği — uyarı emit edilecek minimum yüzde. Default 90%.
+/// Settings key: `tray_monitor_full_threshold`.
+const TRAY_MONITOR_DEFAULT_THRESHOLD: u32 = 90;
+/// Minimum polling interval — kullanıcı yanlışlığını clamp et.
+const TRAY_MONITOR_MIN_INTERVAL_MIN: u64 = 5;
+
+/// Tray monitor enabled mi?  `settings.tray_monitor_enabled = "1"` ise true.
+fn read_tray_monitor_settings(conn: &rusqlite::Connection) -> (bool, u64, u32) {
+    let enabled = get_setting(conn, "tray_monitor_enabled")
+        .ok()
+        .flatten()
+        .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let interval_min = get_setting(conn, "tray_monitor_interval_minutes")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(TRAY_MONITOR_DEFAULT_INTERVAL_MIN)
+        .max(TRAY_MONITOR_MIN_INTERVAL_MIN);
+    let threshold = get_setting(conn, "tray_monitor_full_threshold")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(TRAY_MONITOR_DEFAULT_THRESHOLD)
+        .clamp(50, 99);
+    (enabled, interval_min, threshold)
+}
+
 /// Sürmekte olan taramayı iptal et — `ScanCancel` bayrağını set eder,
 /// walker bir sonraki progress checkpoint'inde fark eder ve
 /// `Error::Scan("scan-cancelled")` ile bail eder. Bir tarama yoksa
@@ -740,6 +781,83 @@ fn build_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Bölüm 13.2 — tray live monitor. Background tokio task arka planda
+/// `tray_monitor_interval_minutes` periyoduyla `list_drives` çağırır;
+/// herhangi bir sürücüde `tray_monitor_full_threshold` aşılırsa frontend'e
+/// `tray-monitor-alert` event'i emit eder.
+///
+/// Setting'ler çalışma sırasında okunur (her tick): toggle restart
+/// gerektirmez. `enabled=false` ise tick no-op, sadece sleep.
+fn spawn_tray_monitor<R: tauri::Runtime>(app: &tauri::App<R>) {
+    use tauri::{Emitter, Manager};
+
+    /// MutexGuard'ı await sınırında geçirmemek için sync helper —
+    /// `Send` future kısıtı (tray_monitor_tick async).
+    fn read_settings<R: tauri::Runtime>(handle: &tauri::AppHandle<R>) -> Option<(bool, u64, u32)> {
+        let db_state = handle.state::<DbState>();
+        let conn = db_state.conn.lock().ok()?;
+        Some(read_tray_monitor_settings(&conn))
+    }
+
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        // İlk tick'i 30 sn'lik açılış payload'unu bozmamak için geciktiriyoruz.
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        loop {
+            let (enabled, interval_min, threshold) = read_settings(&handle).unwrap_or((
+                false,
+                TRAY_MONITOR_DEFAULT_INTERVAL_MIN,
+                TRAY_MONITOR_DEFAULT_THRESHOLD,
+            ));
+
+            if enabled {
+                if let Err(e) = tray_monitor_tick(&handle, threshold).await {
+                    warn!(?e, "tray monitor tick hatası");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(interval_min * 60)).await;
+        }
+    });
+
+    /// Tek bir polling tick — list_drives + threshold check + emit.
+    async fn tray_monitor_tick<R: tauri::Runtime>(
+        handle: &tauri::AppHandle<R>,
+        threshold: u32,
+    ) -> std::result::Result<(), String> {
+        let drives = tokio::task::spawn_blocking(list_drives)
+            .await
+            .map_err(|e| format!("spawn_blocking join: {}", e))?
+            .map_err(|e| format!("list_drives: {:?}", e))?;
+        for info in drives {
+            if !matches!(info.drive_kind, crate::volume::DriveKind::Fixed) {
+                continue;
+            }
+            if info.total_bytes == 0 {
+                continue;
+            }
+            let used = info.total_bytes.saturating_sub(info.free_bytes);
+            let pct = ((used as f64 / info.total_bytes as f64) * 100.0).round() as u32;
+            if pct >= threshold {
+                let alert = TrayMonitorAlert {
+                    drive_letter: info.drive_letter.clone(),
+                    volume_label: info.volume_label.clone(),
+                    usage_percent: pct,
+                    total_bytes: info.total_bytes,
+                    free_bytes: info.free_bytes,
+                };
+                let _ = handle.emit("tray-monitor-alert", &alert);
+                info!(
+                    drive = %info.drive_letter,
+                    usage_percent = pct,
+                    threshold,
+                    "tray monitor alert"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
 
@@ -811,6 +929,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             build_tray(app)?;
+            spawn_tray_monitor(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

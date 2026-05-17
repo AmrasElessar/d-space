@@ -640,6 +640,26 @@ onMounted(() => {
 
 let trayUnlisten: UnlistenFn | null = null;
 let progressUnlisten: UnlistenFn | null = null;
+let trayMonitorUnlisten: UnlistenFn | null = null;
+
+interface TrayMonitorAlert {
+  drive_letter: string;
+  volume_label: string;
+  usage_percent: number;
+  total_bytes: number;
+  free_bytes: number;
+}
+
+const trayMonitorAlert = ref<TrayMonitorAlert | null>(null);
+let trayAlertTimer: ReturnType<typeof setTimeout> | null = null;
+
+function dismissTrayAlert(): void {
+  trayMonitorAlert.value = null;
+  if (trayAlertTimer) {
+    clearTimeout(trayAlertTimer);
+    trayAlertTimer = null;
+  }
+}
 
 onMounted(async () => {
   // Bölüm 13.1 — tray "Tara C:" menüsünden gelen event'i yakala.
@@ -672,6 +692,23 @@ onMounted(async () => {
   invoke("index_build", { drive: drive.value, force: false }).catch((err) => {
     console.info("[index] build atlandı:", err);
   });
+
+  // Sprint 5.1 (Bölüm 13.2) — tray live monitor alert listener.
+  try {
+    trayMonitorUnlisten = await listen<TrayMonitorAlert>(
+      "tray-monitor-alert",
+      (event) => {
+        trayMonitorAlert.value = event.payload;
+        // 20 sn sonra otomatik kapat (kullanıcı zaten görür).
+        if (trayAlertTimer) clearTimeout(trayAlertTimer);
+        trayAlertTimer = setTimeout(() => {
+          trayMonitorAlert.value = null;
+        }, 20_000);
+      },
+    );
+  } catch (err) {
+    console.warn("tray-monitor listener kurulamadı", err);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -683,6 +720,14 @@ onBeforeUnmount(() => {
   if (progressUnlisten) {
     progressUnlisten();
     progressUnlisten = null;
+  }
+  if (trayMonitorUnlisten) {
+    trayMonitorUnlisten();
+    trayMonitorUnlisten = null;
+  }
+  if (trayAlertTimer) {
+    clearTimeout(trayAlertTimer);
+    trayAlertTimer = null;
   }
 });
 
@@ -2240,6 +2285,44 @@ async function confirmPermDelete(item: StagedItem) {
 
     <Onboarding :visible="onboardingVisible" @finish="finishOnboarding" />
 
+    <!-- Sprint 5.1 (Bölüm 13.2) — Tray Live Monitor alert toast. -->
+    <transition name="tray-toast">
+      <div
+        v-if="trayMonitorAlert"
+        class="tray-toast"
+        role="status"
+        @click="dismissTrayAlert"
+      >
+        <span class="tray-toast-icon">⚠</span>
+        <div class="tray-toast-body">
+          <div class="tray-toast-title">
+            {{
+              t("trayMonitor.alert", {
+                drive: trayMonitorAlert.drive_letter,
+                pct: trayMonitorAlert.usage_percent,
+              })
+            }}
+          </div>
+          <div class="tray-toast-hint mono">
+            {{
+              t("trayMonitor.alertHint", {
+                free: formatBytes(trayMonitorAlert.free_bytes),
+                total: formatBytes(trayMonitorAlert.total_bytes),
+              })
+            }}
+          </div>
+        </div>
+        <button
+          type="button"
+          class="tray-toast-close"
+          :aria-label="t('staging.permCancel')"
+          @click.stop="dismissTrayAlert"
+        >
+          ✕
+        </button>
+      </div>
+    </transition>
+
     <ScanProgress
       :visible="scanning"
       :progress="scanProgress"
@@ -3292,6 +3375,75 @@ async function confirmPermDelete(item: StagedItem) {
   :root:not([data-theme]) .lod-badge {
     color: #b45309;
   }
+}
+
+/* Sprint 5.1 — Tray Live Monitor toast. Alt sağda sabit, 20 sn'de
+   otomatik kapanır; tıklayınca da kapanır. */
+.tray-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  border-left: 4px solid #dc2626;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 28px var(--shadow);
+  max-width: 360px;
+  cursor: pointer;
+}
+
+.tray-toast-icon {
+  font-size: 22px;
+  color: #b91c1c;
+  flex-shrink: 0;
+}
+
+.tray-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tray-toast-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.tray-toast-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.tray-toast-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.tray-toast-close:hover {
+  color: var(--fg);
+}
+
+.tray-toast-enter-from {
+  opacity: 0;
+  transform: translateX(20px);
+}
+.tray-toast-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+.tray-toast-enter-active,
+.tray-toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 /* Bölüm 9.4 — viz mod swap transition. Görsel sürekliliği koru. */

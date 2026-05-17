@@ -222,6 +222,16 @@
     "needsAdmin": "Hızlı arama yönetici gerektirir",
     "searching": "Aranıyor…"
   },
+  "trayMonitor": {
+    "title": "Disk Doluluk İzleme",
+    "intro": "Etkinleştirildiğinde D-Space arka planda her N dakikada bir sürücülerinin doluluğunu kontrol eder; herhangi biri eşiği aşarsa sana hatırlatır. Tarama yapmaz, kullanıcı verisini okumaz — sadece toplam/boş bayt sorgular.",
+    "enabled": "Arka plan izleme",
+    "interval": "Kontrol aralığı (dk)",
+    "threshold": "Doluluk eşiği (%)",
+    "saved": "Kaydedildi",
+    "alert": "{drive} %{pct} dolu",
+    "alertHint": "{free} boş / {total} toplam"
+  },
   "update": {
     "check": "Güncelleme kontrol et",
     "checking": "Kontrol ediliyor…",

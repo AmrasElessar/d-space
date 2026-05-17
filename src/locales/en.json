@@ -222,6 +222,16 @@
     "needsAdmin": "Quick search requires admin",
     "searching": "Searching…"
   },
+  "trayMonitor": {
+    "title": "Disk Usage Monitor",
+    "intro": "When enabled, D-Space checks your drives' usage every N minutes in the background; if any exceeds the threshold, you get a reminder. No scanning, no user data read — only total/free bytes.",
+    "enabled": "Background monitoring",
+    "interval": "Check interval (min)",
+    "threshold": "Fullness threshold (%)",
+    "saved": "Saved",
+    "alert": "{drive} is {pct}% full",
+    "alertHint": "{free} free / {total} total"
+  },
   "update": {
     "check": "Check for updates",
     "checking": "Checking…",
