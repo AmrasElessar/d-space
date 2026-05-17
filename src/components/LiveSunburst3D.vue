@@ -24,6 +24,10 @@ import {
 } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  CSS2DObject,
+  CSS2DRenderer,
+} from "three/addons/renderers/CSS2DRenderer.js";
 
 interface PartialNode {
   id: number;
@@ -40,7 +44,20 @@ const props = defineProps<{
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
+const labelLayerRef = ref<HTMLDivElement | null>(null);
 const hoveredLabel = ref<string>("");
+
+/// Dilim açısı bu eşikten büyük ise label her zaman görünür. Eşik altı
+/// (ince dilim) yalnız hover'da veya kamera yakın mesafede belirir.
+const LABEL_ALWAYS_THRESHOLD_RAD = 0.22; // ~12.6°
+const LABEL_NEAR_DISTANCE = 130; // OrbitControls min=80, max=500
+
+interface LabelHandle {
+  div: HTMLDivElement;
+  mesh: THREE.Mesh;
+  worldPos: THREE.Vector3;
+  isSmall: boolean;
+}
 
 const PALETTE = [
   0x4e79a7, 0xf28e2c, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc949, 0xaf7aa1,
@@ -61,12 +78,14 @@ const GAP_RAD = 0.01;
 
 interface SceneState {
   renderer: THREE.WebGLRenderer;
+  labelRenderer: CSS2DRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   raycaster: THREE.Raycaster;
   pointer: THREE.Vector2;
   wedges: THREE.Mesh[];
+  labels: LabelHandle[];
   hovered: THREE.Mesh | null;
   animation: number | null;
 }
@@ -111,7 +130,10 @@ function formatBytes(b: number): string {
   return `${v.toFixed(i >= 3 ? 1 : 0)} ${units[i]}`;
 }
 
-function buildScene(canvas: HTMLCanvasElement): SceneState {
+function buildScene(
+  canvas: HTMLCanvasElement,
+  labelLayer: HTMLDivElement,
+): SceneState {
   const w = canvas.clientWidth || 360;
   const h = canvas.clientHeight || 360;
 
@@ -122,6 +144,12 @@ function buildScene(canvas: HTMLCanvasElement): SceneState {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h, false);
+
+  // CSS2D renderer — HTML div'leri 3D pozisyonda render eder; WebGL
+  // overlay'in üstüne ekstra DOM layer. Crisp text, font scaling
+  // tarayıcı hızlandırma ile.
+  const labelRenderer = new CSS2DRenderer({ element: labelLayer });
+  labelRenderer.setSize(w, h);
 
   const scene = new THREE.Scene();
   scene.background = null;
@@ -160,12 +188,14 @@ function buildScene(canvas: HTMLCanvasElement): SceneState {
 
   return {
     renderer,
+    labelRenderer,
     scene,
     camera,
     controls,
     raycaster: new THREE.Raycaster(),
     pointer: new THREE.Vector2(),
     wedges: [],
+    labels: [],
     hovered: null,
     animation: null,
   };
@@ -181,7 +211,38 @@ function clearWedges(state: SceneState) {
       m.material.dispose();
     }
   }
+  for (const lh of state.labels) {
+    if (lh.div.parentNode) lh.div.parentNode.removeChild(lh.div);
+  }
   state.wedges = [];
+  state.labels = [];
+}
+
+function addWedgeLabel(
+  state: SceneState,
+  mesh: THREE.Mesh,
+  name: string,
+  midA: number,
+  midR: number,
+  topY: number,
+  angleSpan: number,
+) {
+  const div = document.createElement("div");
+  const truncated = name.length > 18 ? name.slice(0, 17) + "…" : name;
+  div.textContent = truncated;
+  div.className = "wedge-label3d";
+  const isSmall = angleSpan < LABEL_ALWAYS_THRESHOLD_RAD;
+  if (isSmall) div.classList.add("wedge-label-small");
+  const labelObj = new CSS2DObject(div);
+  // Mesh local: extrude rotateX(-PI/2) sonrası +Y'ye gider.
+  // Wedge merkezi (XY original) → (cx, 0, -cy) local; top yüzü +Y.
+  labelObj.position.set(Math.cos(midA) * midR, topY + 1.5, -Math.sin(midA) * midR);
+  mesh.add(labelObj);
+  // Cache world position için mesh matrix güncelle.
+  mesh.updateMatrixWorld(true);
+  const worldPos = new THREE.Vector3();
+  labelObj.getWorldPosition(worldPos);
+  state.labels.push({ div, mesh, worldPos, isSmall });
 }
 
 function rebuildWedges(state: SceneState, tree: PartialNode[]) {
@@ -243,6 +304,15 @@ function rebuildWedges(state: SceneState, tree: PartialNode[]) {
     };
     state.scene.add(mesh);
     state.wedges.push(mesh);
+    addWedgeLabel(
+      state,
+      mesh,
+      node.name,
+      (a1g + a2g) / 2,
+      (RING1_INNER + RING1_OUTER) / 2,
+      RING_HEIGHT,
+      a2g - a1g,
+    );
   }
 
   // Depth 2 — parent slot içinde dağıt, koyulaştırılmış renk.
@@ -298,6 +368,32 @@ function rebuildWedges(state: SceneState, tree: PartialNode[]) {
       };
       state.scene.add(mesh);
       state.wedges.push(mesh);
+      addWedgeLabel(
+        state,
+        mesh,
+        k.name,
+        (a1g + a2g) / 2,
+        (RING2_INNER + RING2_OUTER) / 2,
+        RING_HEIGHT,
+        a2g - a1g,
+      );
+    }
+  }
+}
+
+/// Animation loop'tan çağrılır — her frame küçük label'ların görünürlüğünü
+/// kamera mesafesine ve hover state'e göre günceller.
+function updateLabelVisibility(state: SceneState) {
+  const camPos = state.camera.position;
+  for (const lh of state.labels) {
+    if (!lh.isSmall) continue; // büyük her zaman görünür
+    const hovered = state.hovered === lh.mesh;
+    const dist = camPos.distanceTo(lh.worldPos);
+    const near = dist < LABEL_NEAR_DISTANCE;
+    if (hovered || near) {
+      lh.div.classList.add("wedge-label-visible");
+    } else {
+      lh.div.classList.remove("wedge-label-visible");
     }
   }
 }
@@ -309,6 +405,7 @@ function onResize(state: SceneState, canvas: HTMLCanvasElement) {
   state.camera.aspect = w / h;
   state.camera.updateProjectionMatrix();
   state.renderer.setSize(w, h, false);
+  state.labelRenderer.setSize(w, h);
 }
 
 function setHover(state: SceneState, next: THREE.Mesh | null) {
@@ -347,8 +444,8 @@ let resizeObs: ResizeObserver | null = null;
 let pointerMoveHandler: ((e: PointerEvent) => void) | null = null;
 
 onMounted(() => {
-  if (!canvasRef.value) return;
-  const state = buildScene(canvasRef.value);
+  if (!canvasRef.value || !labelLayerRef.value) return;
+  const state = buildScene(canvasRef.value, labelLayerRef.value);
   sceneState.value = state;
 
   if (props.partialTree && props.partialTree.length > 0) {
@@ -357,7 +454,9 @@ onMounted(() => {
 
   const animate = () => {
     state.controls.update();
+    updateLabelVisibility(state);
     state.renderer.render(state.scene, state.camera);
+    state.labelRenderer.render(state.scene, state.camera);
     state.animation = requestAnimationFrame(animate);
   };
   state.animation = requestAnimationFrame(animate);
@@ -400,6 +499,7 @@ watch(
 <template>
   <div class="live3d-wrap">
     <canvas ref="canvasRef" class="live3d-canvas" />
+    <div ref="labelLayerRef" class="live3d-labels"></div>
     <div class="live3d-hud" v-if="hoveredLabel">{{ hoveredLabel }}</div>
     <div v-if="isEmpty" class="live3d-empty">
       <div class="empty-disk"></div>
@@ -431,6 +531,49 @@ watch(
 
 .live3d-canvas:active {
   cursor: grabbing;
+}
+
+/* CSS2DRenderer DOM layer — pointer-events: none ile altındaki canvas
+   tıklamaları yakalamayı korur. */
+.live3d-labels {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Dilim adı label'ı — büyük dilimde her zaman görünür. */
+.live3d-labels :deep(.wedge-label3d) {
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  white-space: nowrap;
+  transform: translate(-50%, -120%);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* İnce dilim — varsayılan gizli, hover veya yakın kamera mesafesinde
+   `.wedge-label-visible` JS tarafından eklenir → fade-in. */
+.live3d-labels :deep(.wedge-label-small) {
+  opacity: 0;
+  transform: translate(-50%, -120%) scale(0.85);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.live3d-labels :deep(.wedge-label-small.wedge-label-visible) {
+  opacity: 1;
+  transform: translate(-50%, -120%) scale(1);
 }
 
 .live3d-hud {

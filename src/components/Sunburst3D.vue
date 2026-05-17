@@ -25,6 +25,10 @@ import {
 } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  CSS2DObject,
+  CSS2DRenderer,
+} from "three/addons/renderers/CSS2DRenderer.js";
 
 interface TreeNode {
   id: number;
@@ -52,7 +56,18 @@ const props = defineProps<{ data: WindowResult | null }>();
 const emit = defineEmits<{ (e: "drill", node: TreeNode): void }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
+const labelLayerRef = ref<HTMLDivElement | null>(null);
 const hoveredLabel = ref<string>("");
+
+const LABEL_ALWAYS_THRESHOLD_RAD = 0.22;
+const LABEL_NEAR_DISTANCE = 180;
+
+interface LabelHandle {
+  div: HTMLDivElement;
+  mesh: THREE.Mesh;
+  worldPos: THREE.Vector3;
+  isSmall: boolean;
+}
 
 // Tableau 10 — 2D sunburst ile aynı palet.
 const PALETTE = [
@@ -68,12 +83,14 @@ const GAP_RAD = 0.012;
 
 interface SceneState {
   renderer: THREE.WebGLRenderer;
+  labelRenderer: CSS2DRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   raycaster: THREE.Raycaster;
   pointer: THREE.Vector2;
   wedges: THREE.Mesh[]; // tıklanabilir wedge mesh listesi
+  labels: LabelHandle[];
   hovered: THREE.Mesh | null;
   animation: number | null;
 }
@@ -95,7 +112,10 @@ function colorFor(index: number): number {
   return PALETTE[index % PALETTE.length];
 }
 
-function buildScene(canvas: HTMLCanvasElement): SceneState {
+function buildScene(
+  canvas: HTMLCanvasElement,
+  labelLayer: HTMLDivElement,
+): SceneState {
   const w = canvas.clientWidth || 480;
   const h = canvas.clientHeight || 360;
 
@@ -106,6 +126,9 @@ function buildScene(canvas: HTMLCanvasElement): SceneState {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h, false);
+
+  const labelRenderer = new CSS2DRenderer({ element: labelLayer });
+  labelRenderer.setSize(w, h);
 
   const scene = new THREE.Scene();
   scene.background = null;
@@ -150,12 +173,14 @@ function buildScene(canvas: HTMLCanvasElement): SceneState {
 
   return {
     renderer,
+    labelRenderer,
     scene,
     camera,
     controls,
     raycaster: new THREE.Raycaster(),
     pointer: new THREE.Vector2(),
     wedges: [],
+    labels: [],
     hovered: null,
     animation: null,
   };
@@ -171,7 +196,53 @@ function clearWedges(state: SceneState) {
       m.material.dispose();
     }
   }
+  for (const lh of state.labels) {
+    if (lh.div.parentNode) lh.div.parentNode.removeChild(lh.div);
+  }
   state.wedges = [];
+  state.labels = [];
+}
+
+function addWedgeLabel(
+  state: SceneState,
+  mesh: THREE.Mesh,
+  name: string,
+  midA: number,
+  midR: number,
+  topY: number,
+  angleSpan: number,
+) {
+  const div = document.createElement("div");
+  div.textContent = name.length > 18 ? name.slice(0, 17) + "…" : name;
+  div.className = "wedge-label3d";
+  const isSmall = angleSpan < LABEL_ALWAYS_THRESHOLD_RAD;
+  if (isSmall) div.classList.add("wedge-label-small");
+  const labelObj = new CSS2DObject(div);
+  labelObj.position.set(
+    Math.cos(midA) * midR,
+    topY + 2,
+    -Math.sin(midA) * midR,
+  );
+  mesh.add(labelObj);
+  mesh.updateMatrixWorld(true);
+  const worldPos = new THREE.Vector3();
+  labelObj.getWorldPosition(worldPos);
+  state.labels.push({ div, mesh, worldPos, isSmall });
+}
+
+function updateLabelVisibility(state: SceneState) {
+  const camPos = state.camera.position;
+  for (const lh of state.labels) {
+    if (!lh.isSmall) continue;
+    const hovered = state.hovered === lh.mesh;
+    const dist = camPos.distanceTo(lh.worldPos);
+    const near = dist < LABEL_NEAR_DISTANCE;
+    if (hovered || near) {
+      lh.div.classList.add("wedge-label-visible");
+    } else {
+      lh.div.classList.remove("wedge-label-visible");
+    }
+  }
 }
 
 function rebuildWedges(state: SceneState, data: WindowResult) {
@@ -222,6 +293,15 @@ function rebuildWedges(state: SceneState, data: WindowResult) {
     };
     state.scene.add(mesh);
     state.wedges.push(mesh);
+    addWedgeLabel(
+      state,
+      mesh,
+      node.name,
+      (a1g + a2g) / 2,
+      INNER_R + RING_THICKNESS / 2,
+      RING_HEIGHT,
+      a2g - a1g,
+    );
   }
 }
 
@@ -232,6 +312,7 @@ function onResize(state: SceneState, canvas: HTMLCanvasElement) {
   state.camera.aspect = w / h;
   state.camera.updateProjectionMatrix();
   state.renderer.setSize(w, h, false);
+  state.labelRenderer.setSize(w, h);
 }
 
 function setHover(state: SceneState, next: THREE.Mesh | null) {
@@ -291,8 +372,8 @@ let pointerMoveHandler: ((e: PointerEvent) => void) | null = null;
 let pointerDownHandler: ((e: PointerEvent) => void) | null = null;
 
 onMounted(() => {
-  if (!canvasRef.value) return;
-  const state = buildScene(canvasRef.value);
+  if (!canvasRef.value || !labelLayerRef.value) return;
+  const state = buildScene(canvasRef.value, labelLayerRef.value);
   sceneState.value = state;
 
   if (props.data) rebuildWedges(state, props.data);
@@ -300,7 +381,9 @@ onMounted(() => {
   // Animation loop
   const animate = () => {
     state.controls.update();
+    updateLabelVisibility(state);
     state.renderer.render(state.scene, state.camera);
+    state.labelRenderer.render(state.scene, state.camera);
     state.animation = requestAnimationFrame(animate);
   };
   state.animation = requestAnimationFrame(animate);
@@ -347,6 +430,7 @@ watch(
 <template>
   <div class="sun3d-wrap">
     <canvas ref="canvasRef" class="sun3d-canvas" />
+    <div ref="labelLayerRef" class="sun3d-labels"></div>
     <div class="sun3d-hud" v-if="hoveredLabel">{{ hoveredLabel }}</div>
     <div class="sun3d-hint">🖱 sürükle = döndür · tekerlek = zoom · tık = içeri</div>
   </div>
@@ -377,6 +461,43 @@ watch(
 
 .sun3d-canvas:active {
   cursor: grabbing;
+}
+
+.sun3d-labels {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.sun3d-labels :deep(.wedge-label3d) {
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  white-space: nowrap;
+  transform: translate(-50%, -120%);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  user-select: none;
+}
+
+.sun3d-labels :deep(.wedge-label-small) {
+  opacity: 0;
+  transform: translate(-50%, -120%) scale(0.85);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.sun3d-labels :deep(.wedge-label-small.wedge-label-visible) {
+  opacity: 1;
+  transform: translate(-50%, -120%) scale(1);
 }
 
 .sun3d-hud {
