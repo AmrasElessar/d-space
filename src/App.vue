@@ -2038,7 +2038,7 @@ async function confirmPermDelete(item: StagedItem) {
         {{ t("staging.title") }}
         <InfoButton :text="t('staging.intro')" />
       </h2>
-      <p class="muted" v-if="stagingList.length === 0 && !stagingError">
+      <p class="muted empty-shimmer" v-if="stagingList.length === 0 && !stagingError">
         {{ t("staging.empty") }}
       </p>
       <transition-group
@@ -2725,10 +2725,63 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .detail-empty-emoji {
-  font-size: 32px;
+  font-size: 36px;
   display: block;
   margin-bottom: 12px;
-  opacity: 0.6;
+  opacity: 0.65;
+  animation: empty-bounce 2.4s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
+@keyframes empty-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-4px) scale(1.04);
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-empty-emoji {
+    animation: none;
+  }
+}
+
+/* Bölüm 15.4 — boş listelerde subtle shimmer; kullanıcı dikkati hafifçe
+   buraya çekilir, "boş ama erişilebilir" hissi. */
+.empty-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--fg) 5%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: empty-shimmer 4s linear infinite;
+  border-radius: 6px;
+  padding: 16px 12px !important;
+}
+
+@keyframes empty-shimmer {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-shimmer {
+    animation: none;
+    background: transparent;
+  }
 }
 
 .detail-name {

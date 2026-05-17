@@ -2,11 +2,11 @@
 
 # D-Space — Sonraki Oturum Yol Planı
 
-> **Son güncelleme:** 2026-05-17 13:55 — v0.2.0-beta polish dalgası tamam
-> **Şu anki sürüm:** `v0.2.0-beta` adayı — pubkey aktif, 15 commit ahead origin, tag çekmeye hazır
-> **Hedef:** `v0.2.0-beta` → `v0.3.0` → `v1.0.0-stable`
-> **Test sayısı:** 124 Rust + 34 frontend = **158 passing** (+ 9 vss-gated)
-> **2026-05-17 polish dalgası:** info popover, 3-kolon layout, tarama durdur/iptal, disk hardware rozeti, hard link dedup, sunburst 3D + tıklama detayı, tema pill renkleri light tema uyumlu, canlı log scroll + tooltip
+> **Son güncelleme:** 2026-05-17 14:45 — v0.2.0-beta tag + Faz 4 + Faz 5.1+5.2+5.3 tamam
+> **Şu anki sürüm:** `v0.2.0-beta` tag origin'de (commit `5551274` üzerine yapışacak — kullanıcı tag rebase komutunu çalıştırınca release workflow yeniden tetikleniyor)
+> **Hedef:** v0.3.0 → `v1.0.0-stable`
+> **Test sayısı:** 136 Rust + 34 frontend = **170 passing** (+ 9 vss-gated)
+> **2026-05-17 polish + Faz 4 + Faz 5 (kısmi):** info popover, 3-kolon, tarama durdur/iptal, disk hardware, hard link dedup, sunburst 3D, light tema pill, scan log scroll, **Faz 4.1 duplicate head-hash + rayon**, **4.2 snapshot retention**, **4.3/4.4 kısmi**, **4.5 LOD + viz transition**, **4.6 ReFS bypass**, **5.1 tray live monitor**, **5.2 onboarding karşılaştırma**, **5.3 empty state animasyon**
 
 Bu doküman bir sonraki oturum başlar başlamaz açılacak. Akış:
 1. Git pull + son durumu doğrula
@@ -195,20 +195,47 @@ git tag -l --sort=-creatordate | head -5
 
 ---
 
-## 🚦 Sıradaki sprint kararı: **Faz 4.1 Duplicate v0.2** (önerilen)
+## 🚦 Sıradaki sprint kararı: **v0.3.0 yolu** — kalan iş v0.3.1+
 
-v0.2.0-beta tag adayı hazır (3.8.1 + 3.6 + 3.5 scaffold tamam, 2026-05-17).
-Maintainer pubkey gen + push + tag çekince beta yayınlanır. Sonraki
-oturum **Faz 4** başlar.
+**Bu oturumda yapılanlar (2026-05-17):**
+* v0.2.0-beta tag çekildi, MSI version fix (0.2.0-beta → 0.2.0).
+* Faz 4.1 duplicate v0.2 — head-hash prefilter + rayon paralel (+5 test).
+* Faz 4.2 snapshot retention — 90-gün purge + auto-cleanup (+3 test).
+* Faz 4.3 kısmi — pipeline + skip-prefilter testleri (+2 test). Synthetic
+  NTFS VHDX v0.3.1'e.
+* Faz 4.4 kısmi — UNC path desteği find_first walker (+4 test). Bandwidth-
+  aware concrete NetworkShareScanner v0.3.1'e.
+* Faz 4.5 LOD + viz transition — dinamik min_size threshold + view-swap
+  fade.
+* Faz 4.6 ReFS bypass — pre_flight FS check → MFT yolunu atla.
+* Faz 5.1 Tray Live Monitor — background polling + alert toast.
+  Battery-aware throttle v0.3.1'e.
+* Faz 5.2 onboarding karşılaştırma — D-Space vs WizTree/TreeSize/
+  WinDirStat objektif tablo (Bölüm 37.2 etik).
+* Faz 5.3 empty state animasyon. **DoD 5220.22-M wipe v0.3.1'e**
+  (yanlış implementation veri kaybı riski — özenli iş gerek).
 
-**Önerilen sıra:**
-1. **4.1 Duplicate v0.2** — head-hash prefilter + rayon paralel. En çok
-   görünür kazanım (100 GB <60 sn hedef).
-2. **4.3 Test piramidi** — synthetic NTFS VHDX + critical edge cases. 
-   200+ Rust test hedefine doğru.
-3. **4.2 Snapshot retention** + **4.5 LOD/animation** + **4.4 Network
-   scanner** + **4.6 ReFS** — paralelleştirilebilir.
+**v0.3.0 hedefine kalan:**
+* Faz 4.3 — synthetic NTFS VHDX fixture generator (admin gerekir,
+  geniş fixture).
+* Faz 4.4 — bandwidth-aware NetworkShareScanner concrete impl + UNC
+  scan UI.
+* Faz 5.1 ek — battery-aware throttle (GetSystemPowerStatus, pillen
+  durumda interval × 2).
+* Faz 5.3 ek — DoD 5220.22-M secure wipe (opt-in, double confirm).
+* Faz 5.4 — Production signing (EV cert satın alma + signtool + winget
+  + Scoop + SmartScreen reputation request) — **dış işlem, kullanıcı/
+  organizasyon yürütür**.
 
-Alternatif (kullanıcı bir polish dalgası ister):
-* **5.1 Tray live monitor** + **5.3 UX polish** — alpha-beta arası
-  kullanıcı algısı sıçraması.
+**v1.0.0 başarı kriterleri** (mevcut durum):
+- [x] 200+ Rust test (136 + 9 vss = 145 — hedefi yarıladık)
+- [x] Tüm 5 pillar — v0.2 olgun
+- [ ] EV cert imzalı MSI + NSIS
+- [ ] SmartScreen reputation kazanılmış
+- [ ] VirusTotal 0/70 false positive
+- [x] Auto-updater çalışıyor (placeholder pubkey → maintainer gerçek
+  pubkey üretti)
+- [ ] winget + Scoop'ta yayın
+- [x] CHANGELOG her release detaylı
+- [x] Discovery Log canlı
+- [x] Threat Model güncel
