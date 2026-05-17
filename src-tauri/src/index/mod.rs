@@ -21,6 +21,7 @@
 // üzerinden top-N. v0.1 sadece isim eşleşmesi, full_path opsiyonel —
 // `WITH RECURSIVE` ile parent zinciri çözülür (top-50 için yeterli).
 
+pub mod baseline;
 pub mod delta;
 pub mod persist;
 pub mod usn;
@@ -32,6 +33,9 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::debug;
 
+pub use baseline::{
+    apply_baseline_batch, enumerate_volume_baseline, BaselineSummary, DEFAULT_BASELINE_BUFFER,
+};
 pub use delta::{apply_delta, detect_wraparound, DeltaSummary};
 pub use persist::{
     load_watermark, save_entries, save_watermark, search as persist_search, Watermark,

@@ -21,8 +21,8 @@ use crate::db::{db_info, get_setting, open_db, set_setting, DbInfo, DbState};
 use crate::duplicate::{find_duplicates, DuplicateOptions, DuplicateScanResult};
 use crate::error::{Error, Result};
 use crate::index::{
-    index_search as index_search_db, index_status as index_status_db, IndexSearchResult,
-    IndexStatus,
+    enumerate_volume_baseline, index_search as index_search_db, index_status as index_status_db,
+    IndexSearchResult, IndexStatus, DEFAULT_BASELINE_BUFFER,
 };
 use crate::locked_file::{probe_file, LockedFileProbe};
 use crate::safe_delete::{
@@ -564,41 +564,45 @@ fn index_status(drive: Option<String>, state: tauri::State<'_, DbState>) -> Resu
     Ok(st)
 }
 
-/// Sprint 3.8 — baseline enumerate başlatıcı. **v0.1 stub**: gerçek
-/// `FSCTL_ENUM_USN_DATA` walker bir sonraki minör revizyona bırakıldı
-/// (Discovery #005 — büyük binary stream + watermark race testleri ayrı
-/// sprint). Şimdilik command yalnız "needs_admin" / "ok" durumunu döner;
-/// UI search bar buna göre placeholder veya disabled badge gösterir.
+/// Sprint 3.8.1 — baseline enumerate. Admin yoksa `mode="needs_admin"`
+/// durumu döner; aksi halde gerçek `FSCTL_ENUM_USN_DATA` walker tüm MFT'yi
+/// gezer, `usn_index` tablosuna yazar ve watermark'ı (`usn_watermark`) kaydeder.
 #[tauri::command]
 async fn index_build(
     drive: String,
     _force: Option<bool>,
     db_state: tauri::State<'_, DbState>,
 ) -> Result<IndexStatus> {
+    let drive_letter = drive
+        .chars()
+        .find(|c| c.is_ascii_alphabetic())
+        .map(|c| c.to_ascii_uppercase())
+        .ok_or_else(|| Error::Index(format!("geçersiz drive parametresi: {}", drive)))?;
+    let volume_id = format!(r"\\.\{}:", drive_letter);
+
     if !is_elevated() {
         let conn = db_state
             .conn
             .lock()
             .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
-        let volume_id = drive
-            .chars()
-            .find(|c| c.is_ascii_alphabetic())
-            .map(|c| format!(r"\\.\{}:", c.to_ascii_uppercase()));
-        let mut st = index_status_db(&conn, volume_id.as_deref())?;
+        let mut st = index_status_db(&conn, Some(&volume_id))?;
         st.mode = "needs_admin".to_string();
         return Ok(st);
     }
-    // TODO(v0.2): FSCTL_ENUM_USN_DATA baseline walker. Şimdilik mevcut
-    // index durumunu dön (idle/ready).
-    let conn = db_state
+
+    let mut conn = db_state
         .conn
         .lock()
         .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
-    let volume_id = drive
-        .chars()
-        .find(|c| c.is_ascii_alphabetic())
-        .map(|c| format!(r"\\.\{}:", c.to_ascii_uppercase()));
-    index_status_db(&conn, volume_id.as_deref())
+    let summary = enumerate_volume_baseline(&volume_id, &mut conn, DEFAULT_BASELINE_BUFFER)?;
+    info!(
+        volume = %volume_id,
+        records = summary.records_seen,
+        entries = summary.entries_written,
+        batches = summary.batches,
+        "USN baseline tamamlandı"
+    );
+    index_status_db(&conn, Some(&volume_id))
 }
 
 /// Bölüm 8.6 — iki snapshot ID arasındaki delta (added/removed/grew/shrunk
