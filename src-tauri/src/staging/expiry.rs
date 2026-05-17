@@ -128,7 +128,7 @@ pub fn cleanup_expired(
             failed += 1;
             continue;
         }
-        match permanent_delete(item.id, &file_name, conn) {
+        match permanent_delete(item.id, &file_name, false, conn) {
             Ok(PermanentDeleteResult { size_bytes, .. }) => {
                 deleted += 1;
                 total_bytes = total_bytes.saturating_add(size_bytes);

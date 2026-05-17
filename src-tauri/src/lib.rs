@@ -135,6 +135,30 @@ const TRAY_MONITOR_DEFAULT_THRESHOLD: u32 = 90;
 /// Minimum polling interval — kullanıcı yanlışlığını clamp et.
 const TRAY_MONITOR_MIN_INTERVAL_MIN: u64 = 5;
 
+/// Win32 `GetSystemPowerStatus` ile sistemin AC mi pillen mi olduğunu
+/// döner. Gemini review 2.4 ek — Bölüm 13.3 battery-aware throttle:
+/// pillen modda tray monitor interval'i × 2 ile çarpılır (12 wake/saat
+/// yerine 6).
+///
+/// Dönüş: `true` = battery / unknown (konservatif), `false` = AC plugged.
+#[cfg(windows)]
+fn is_on_battery() -> bool {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut status: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
+    let ok = unsafe { GetSystemPowerStatus(&mut status) };
+    if ok.is_err() {
+        // Sorgu başarısız → konservatif, batarya varsay (interval × 2).
+        return true;
+    }
+    // ACLineStatus: 0=offline (battery), 1=online (AC), 255=unknown
+    status.ACLineStatus == 0
+}
+
+#[cfg(not(windows))]
+fn is_on_battery() -> bool {
+    false
+}
+
 /// Tray monitor enabled mi?  `settings.tray_monitor_enabled = "1"` ise true.
 fn read_tray_monitor_settings(conn: &rusqlite::Connection) -> (bool, u64, u32) {
     let enabled = get_setting(conn, "tray_monitor_enabled")
@@ -435,13 +459,14 @@ fn cleanup_expired_staging_cmd(
 fn permanent_delete_cmd(
     id: i64,
     confirm_phrase: String,
+    secure_wipe: Option<bool>,
     state: tauri::State<'_, DbState>,
 ) -> Result<PermanentDeleteResult> {
     let mut conn = state
         .conn
         .lock()
         .map_err(|e| Error::Db(format!("mutex poisoned: {}", e)))?;
-    permanent_delete(id, &confirm_phrase, &mut conn)
+    permanent_delete(id, &confirm_phrase, secure_wipe.unwrap_or(false), &mut conn)
 }
 
 /// Bölüm 6.4 — kullanıcı tanımlı kuralları listele.
@@ -817,7 +842,13 @@ fn spawn_tray_monitor<R: tauri::Runtime>(app: &tauri::App<R>) {
                     warn!(?e, "tray monitor tick hatası");
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(interval_min * 60)).await;
+            // Bölüm 13.3 — battery-aware throttle: pillen modda interval × 2.
+            let effective_interval = if is_on_battery() {
+                interval_min.saturating_mul(2)
+            } else {
+                interval_min
+            };
+            tokio::time::sleep(std::time::Duration::from_secs(effective_interval * 60)).await;
         }
     });
 

@@ -77,6 +77,8 @@
     "permGo": "Sonsuza kadar sil",
     "permBusy": "Siliniyor…",
     "permCancel": "İptal",
+    "secureWipe": "Güvenli üzerine yaz (DoD 5220.22-M, 3 geçiş)",
+    "secureWipeHint": "Forensic kurtarma araçlarına karşı koruma; süre 2-3x uzar. SSD'de %100 garanti yok (wear leveling).",
     "tierCross": "Diskler arası",
     "tierNormal": "Aynı disk",
     "tierCrossTitle": "Diskler arası taşıma — bütünlük kontrolü ve atomik adımlar uygulanır",

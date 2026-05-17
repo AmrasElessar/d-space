@@ -322,6 +322,7 @@ const viewMode = ref<ViewMode>("sunburst");
 
 const permDeletePendingId = ref<number | null>(null);
 const permDeletePhrase = ref<string>("");
+const permDeleteSecure = ref<boolean>(false);
 const permDeleteBusyId = ref<number | null>(null);
 const permDeleteError = ref<string | null>(null);
 
@@ -1321,6 +1322,7 @@ function startPermDelete(item: StagedItem) {
 function cancelPermDelete() {
   permDeletePendingId.value = null;
   permDeletePhrase.value = "";
+  permDeleteSecure.value = false;
   permDeleteError.value = null;
 }
 
@@ -1332,9 +1334,11 @@ async function confirmPermDelete(item: StagedItem) {
     await invoke<PermanentDeleteResult>("permanent_delete_cmd", {
       id: item.id,
       confirmPhrase: permDeletePhrase.value,
+      secureWipe: permDeleteSecure.value,
     });
     permDeletePendingId.value = null;
     permDeletePhrase.value = "";
+    permDeleteSecure.value = false;
     await refreshStaging();
   } catch (err) {
     permDeleteError.value = formatIpcError(err);
@@ -2133,6 +2137,17 @@ async function confirmPermDelete(item: StagedItem) {
                 {{ t("staging.permCancel") }}
               </button>
             </div>
+            <label v-if="!item.is_dir" class="perm-wipe-row">
+              <input
+                v-model="permDeleteSecure"
+                type="checkbox"
+                :disabled="permDeleteBusyId === item.id"
+              />
+              <span class="perm-wipe-label">
+                🔐 {{ t("staging.secureWipe") }}
+              </span>
+              <span class="perm-wipe-hint">{{ t("staging.secureWipeHint") }}</span>
+            </label>
             <p v-if="permDeleteError" class="err perm-err">
               {{ permDeleteError }}
             </p>
@@ -3860,8 +3875,17 @@ async function confirmPermDelete(item: StagedItem) {
 
 .perm-warn {
   font-size: 12px;
-  color: #fca5a5;
+  color: #b91c1c;
   line-height: 1.45;
+}
+
+:root:not([data-theme="light"]) .perm-warn {
+  color: #fca5a5;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .perm-warn {
+    color: #b91c1c;
+  }
 }
 
 .perm-warn code {
@@ -3869,7 +3893,37 @@ async function confirmPermDelete(item: StagedItem) {
   border: 1px solid var(--border);
   padding: 1px 6px;
   border-radius: 4px;
-  color: #fcd34d;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* DoD secure wipe checkbox satırı — opt-in. */
+.perm-wipe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+
+.perm-wipe-row input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #b91c1c;
+}
+
+.perm-wipe-label {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.perm-wipe-hint {
+  font-size: 10px;
+  color: var(--muted);
+  flex-basis: 100%;
+  margin-left: 22px;
+  line-height: 1.35;
 }
 
 .perm-row {

@@ -77,6 +77,8 @@
     "permGo": "Delete forever",
     "permBusy": "Deleting…",
     "permCancel": "Cancel",
+    "secureWipe": "Secure overwrite (DoD 5220.22-M, 3 pass)",
+    "secureWipeHint": "Protects against forensic recovery; takes 2-3× longer. Not 100% guaranteed on SSDs (wear leveling).",
     "tierCross": "Across disks",
     "tierNormal": "Same disk",
     "tierCrossTitle": "Across-disk move — integrity-checked and atomic",

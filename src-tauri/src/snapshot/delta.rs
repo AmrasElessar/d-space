@@ -16,10 +16,86 @@ use crate::error::{Error, Result};
 use crate::snapshot::SnapshotId;
 use rusqlite::{params, Connection};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use tracing::{debug, info};
 
 const TOP_N: usize = 10;
+
+/// Bir kategoriye top-N entry tutan min-heap wrapper. Yeni entry'lerde
+/// `len > N` olunca en küçük (= en az ilgi çeken) item atılır. RAM
+/// O(N) sabit kalır; full HashMap yerine streaming SQL JOIN ile birlikte
+/// kullanılır (Gemini review 3.4 — 1M entry snapshot'larda 600 MB'lık
+/// RAM patlamasını engeller).
+struct TopN<T: Ord> {
+    heap: BinaryHeap<Reverse<T>>,
+    cap: usize,
+}
+
+impl<T: Ord> TopN<T> {
+    fn new(cap: usize) -> Self {
+        Self {
+            heap: BinaryHeap::with_capacity(cap + 1),
+            cap,
+        }
+    }
+    fn push(&mut self, item: T) {
+        self.heap.push(Reverse(item));
+        if self.heap.len() > self.cap {
+            self.heap.pop();
+        }
+    }
+    fn into_sorted_desc(self) -> Vec<T> {
+        let mut v: Vec<T> = self.heap.into_iter().map(|r| r.0).collect();
+        v.sort_by(|a, b| b.cmp(a));
+        v
+    }
+}
+
+/// `PathEntry` heap ordering: önce size_bytes (büyük üstte), eşit ise
+/// path lex.
+impl PartialOrd for PathEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for PathEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.size_bytes
+            .cmp(&other.size_bytes)
+            .then_with(|| self.path.cmp(&other.path))
+    }
+}
+impl PartialEq for PathEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.size_bytes == other.size_bytes && self.path == other.path
+    }
+}
+impl Eq for PathEntry {}
+
+/// `DeltaEntry` heap ordering: önce mutlak |delta_bytes| (büyük üstte).
+/// Grew için pozitif, shrunk için negatif — caller türü ayırır.
+/// Burada salt mutlak büyüklük üzerinden sıralama; daha sonra
+/// `into_sorted_desc` çıktısı caller'a uygun yön ile çevrilir.
+impl PartialOrd for DeltaEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for DeltaEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.delta_bytes
+            .abs()
+            .cmp(&other.delta_bytes.abs())
+            .then_with(|| self.path.cmp(&other.path))
+    }
+}
+impl PartialEq for DeltaEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.delta_bytes == other.delta_bytes && self.path == other.path
+    }
+}
+impl Eq for DeltaEntry {}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PathEntry {
@@ -49,36 +125,6 @@ pub struct DeltaResult {
     pub shrunk: Vec<DeltaEntry>,
 }
 
-/// İki snapshot'taki entry'leri `HashMap<path_hash → (path, size)>`
-/// olarak okur.
-fn load_entries(
-    conn: &Connection,
-    snapshot_id: SnapshotId,
-) -> Result<HashMap<Vec<u8>, (String, u64)>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT path_hash, path, size_bytes FROM snapshot_entries
-             WHERE snapshot_id = ?1",
-        )
-        .map_err(|e| Error::Snapshot(format!("delta prepare: {}", e)))?;
-
-    let rows = stmt
-        .query_map(params![snapshot_id], |r| {
-            let hash: Vec<u8> = r.get(0)?;
-            let path: String = r.get(1)?;
-            let size: i64 = r.get(2)?;
-            Ok((hash, path, size.max(0) as u64))
-        })
-        .map_err(|e| Error::Snapshot(format!("delta query: {}", e)))?;
-
-    let mut map = HashMap::new();
-    for row in rows {
-        let (h, p, s) = row.map_err(|e| Error::Snapshot(format!("delta row: {}", e)))?;
-        map.insert(h, (p, s));
-    }
-    Ok(map)
-}
-
 fn snapshot_captured_at(conn: &Connection, snapshot_id: SnapshotId) -> Result<i64> {
     conn.query_row(
         "SELECT captured_at FROM snapshots WHERE id = ?1",
@@ -90,89 +136,118 @@ fn snapshot_captured_at(conn: &Connection, snapshot_id: SnapshotId) -> Result<i6
 
 /// Bölüm 8.6 — iki snapshot arasında set-difference + size-difference
 /// hesaplar. Top-10 entry her kategori için döner.
+///
+/// Gemini review 3.4 — RAM optimizasyonu: önceki impl iki snapshot'ı
+/// tam HashMap'e yüklüyordu (~600 MB / 1M entry). Şimdi SQL FULL OUTER
+/// JOIN ile satır satır stream'leniyor + her kategori için BinaryHeap
+/// top-N. Sabit ~MB seviyesi RAM.
 pub fn compute_delta(
     from_id: SnapshotId,
     to_id: SnapshotId,
     conn: &Connection,
 ) -> Result<DeltaResult> {
-    debug!(from_id, to_id, "delta hesaplanıyor");
+    debug!(from_id, to_id, "delta hesaplanıyor (streaming)");
 
     let from_captured_at = snapshot_captured_at(conn, from_id)?;
     let to_captured_at = snapshot_captured_at(conn, to_id)?;
 
-    let from_map = load_entries(conn, from_id)?;
-    let to_map = load_entries(conn, to_id)?;
+    // FULL OUTER JOIN: SQLite 3.39+ destekler (rusqlite 0.32 bundles ≥3.46).
+    // `a` from snapshot, `b` to snapshot. NULL → o tarafta yok.
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.path, a.size_bytes, b.path, b.size_bytes
+             FROM (SELECT path_hash, path, size_bytes
+                   FROM snapshot_entries WHERE snapshot_id = ?1) a
+             FULL OUTER JOIN
+                  (SELECT path_hash, path, size_bytes
+                   FROM snapshot_entries WHERE snapshot_id = ?2) b
+             ON a.path_hash = b.path_hash",
+        )
+        .map_err(|e| Error::Snapshot(format!("delta prepare: {}", e)))?;
 
-    let mut added: Vec<PathEntry> = Vec::new();
-    let mut removed: Vec<PathEntry> = Vec::new();
-    let mut grew: Vec<DeltaEntry> = Vec::new();
-    let mut shrunk: Vec<DeltaEntry> = Vec::new();
+    let mut added_h: TopN<PathEntry> = TopN::new(TOP_N);
+    let mut removed_h: TopN<PathEntry> = TopN::new(TOP_N);
+    let mut grew_h: TopN<DeltaEntry> = TopN::new(TOP_N);
+    let mut shrunk_h: TopN<DeltaEntry> = TopN::new(TOP_N);
 
     let mut net_change: i64 = 0;
+    let mut total_changed: u64 = 0;
 
-    // to'yu gez: added vs grew/shrunk
-    for (hash, (path, to_size)) in &to_map {
-        match from_map.get(hash) {
-            None => {
-                added.push(PathEntry {
-                    path: path.clone(),
-                    size_bytes: *to_size,
+    let mut rows = stmt
+        .query(params![from_id, to_id])
+        .map_err(|e| Error::Snapshot(format!("delta query: {}", e)))?;
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| Error::Snapshot(format!("delta next: {}", e)))?
+    {
+        let a_path: Option<String> = row.get(0).ok();
+        let a_size: Option<i64> = row.get(1).ok();
+        let b_path: Option<String> = row.get(2).ok();
+        let b_size: Option<i64> = row.get(3).ok();
+
+        match (a_path, b_path) {
+            (None, Some(p)) => {
+                // added: yalnız to'da var
+                let size = b_size.unwrap_or(0).max(0) as u64;
+                total_changed += 1;
+                net_change = net_change.saturating_add(size as i64);
+                added_h.push(PathEntry {
+                    path: p,
+                    size_bytes: size,
                 });
-                net_change = net_change.saturating_add(*to_size as i64);
             }
-            Some((_from_path, from_size)) => {
-                let from_s = *from_size as i64;
-                let to_s = *to_size as i64;
-                let delta = to_s - from_s;
+            (Some(p), None) => {
+                // removed: yalnız from'da var
+                let size = a_size.unwrap_or(0).max(0) as u64;
+                total_changed += 1;
+                net_change = net_change.saturating_sub(size as i64);
+                removed_h.push(PathEntry {
+                    path: p,
+                    size_bytes: size,
+                });
+            }
+            (Some(_a), Some(p)) => {
+                let from_s = a_size.unwrap_or(0).max(0) as u64;
+                let to_s = b_size.unwrap_or(0).max(0) as u64;
+                let delta = to_s as i64 - from_s as i64;
                 if delta > 0 {
-                    grew.push(DeltaEntry {
-                        path: path.clone(),
-                        from_size: *from_size,
-                        to_size: *to_size,
+                    total_changed += 1;
+                    net_change = net_change.saturating_add(delta);
+                    grew_h.push(DeltaEntry {
+                        path: p,
+                        from_size: from_s,
+                        to_size: to_s,
                         delta_bytes: delta,
                     });
-                    net_change = net_change.saturating_add(delta);
                 } else if delta < 0 {
-                    shrunk.push(DeltaEntry {
-                        path: path.clone(),
-                        from_size: *from_size,
-                        to_size: *to_size,
+                    total_changed += 1;
+                    net_change = net_change.saturating_add(delta);
+                    shrunk_h.push(DeltaEntry {
+                        path: p,
+                        from_size: from_s,
+                        to_size: to_s,
                         delta_bytes: delta,
                     });
-                    net_change = net_change.saturating_add(delta);
                 }
-                // delta == 0 → unchanged, sayılmaz.
+                // delta == 0 → unchanged
             }
+            (None, None) => {} // imkansız
         }
     }
 
-    // from'u gez: removed
-    for (hash, (path, from_size)) in &from_map {
-        if !to_map.contains_key(hash) {
-            removed.push(PathEntry {
-                path: path.clone(),
-                size_bytes: *from_size,
-            });
-            net_change = net_change.saturating_sub(*from_size as i64);
-        }
-    }
-
-    let total_changed_paths =
-        added.len() as u64 + removed.len() as u64 + grew.len() as u64 + shrunk.len() as u64;
-
-    // Sırala + top-N kırp
-    added.sort_by_key(|e| std::cmp::Reverse(e.size_bytes));
-    added.truncate(TOP_N);
-
-    removed.sort_by_key(|e| std::cmp::Reverse(e.size_bytes));
-    removed.truncate(TOP_N);
-
-    grew.sort_by_key(|e| std::cmp::Reverse(e.delta_bytes));
-    grew.truncate(TOP_N);
-
-    // shrunk için delta_bytes ASC (en negatif = en çok küçülen önce)
+    let added = added_h.into_sorted_desc();
+    let removed = removed_h.into_sorted_desc();
+    let mut grew = grew_h.into_sorted_desc();
+    grew.retain(|d| d.delta_bytes > 0);
+    let mut shrunk = shrunk_h.into_sorted_desc();
+    shrunk.retain(|d| d.delta_bytes < 0);
+    // shrunk için en negatif önce gelmeli — heap mutlak büyüklük sıralı,
+    // sonra reverse-sort: çıktı zaten DESC abs; shrunk için ASC delta
+    // (yani en negatif önce) doğal.
     shrunk.sort_by_key(|a| a.delta_bytes);
-    shrunk.truncate(TOP_N);
+
+    let total_changed_paths = total_changed;
 
     info!(
         from_id,

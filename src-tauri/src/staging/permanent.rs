@@ -79,9 +79,15 @@ fn hex32(bytes: &[u8; 32]) -> String {
 ///
 /// Klasör için `remove_dir_all` (recursive). Hash sadece tek dosyada
 /// (ilk 4 KB).
+///
+/// `secure_wipe` true ise tek dosyalar (klasör değil) için
+/// `staging::wipe::dod_wipe_file` çağrılır: 3-pass overwrite (0x00, 0xFF,
+/// random) + sync + delete. Forensic recovery araçları veriyi geri
+/// getiremez. SSD'lerde wear leveling sınırı vardır (UI uyarısı).
 pub fn permanent_delete(
     id: i64,
     confirm_phrase: &str,
+    secure_wipe: bool,
     conn: &mut Connection,
 ) -> Result<PermanentDeleteResult> {
     let (original_path, staged_path, size_bytes, is_dir): (String, String, i64, i64) = conn
@@ -155,8 +161,15 @@ pub fn permanent_delete(
 
     // Sonra dosyayı sil. DB transaction commit edilmiş olsa bile FS hatası
     // ledger'ı bozmaz — manuel temizlik için iz kalır.
+    // secure_wipe yalnız tek dosyaya uygulanır; klasör recursive remove ile
+    // (DoD wipe klasör için anlamsız — her dosyayı tek tek wipe etmek çok
+    // pahalı, kullanıcı UI'da onayladı zaten).
     let fs_result = if is_dir {
         fs::remove_dir_all(&staged_pb)
+            .map_err(|e| std::io::Error::other(format!("klasör recursive remove: {}", e)))
+    } else if secure_wipe {
+        crate::staging::wipe::dod_wipe_file(&staged_pb)
+            .map_err(|e| std::io::Error::other(format!("DoD wipe: {}", e)))
     } else {
         fs::remove_file(&staged_pb)
     };
@@ -180,6 +193,7 @@ pub fn permanent_delete(
         is_dir,
         size = size_bytes,
         hash_hex = hash_hex.as_deref().unwrap_or("-"),
+        secure_wipe,
         "permanent delete tamamlandı"
     );
 
@@ -245,7 +259,7 @@ mod tests {
         fs::write(&staged, b"sensitive").unwrap();
         let id = seed_staging(&conn, r"C:\Users\test\secret.bin", &staged, 9);
 
-        let err = permanent_delete(id, "yanlış-isim.bin", &mut conn);
+        let err = permanent_delete(id, "yanlış-isim.bin", false, &mut conn);
         assert!(err.is_err());
         // Dosya hâlâ orada
         assert!(staged.exists());
@@ -271,7 +285,7 @@ mod tests {
         fs::write(&staged, b"some content here").unwrap();
         let id = seed_staging(&conn, r"C:\Users\test\doomed.txt", &staged, 17);
 
-        let result = permanent_delete(id, "doomed.txt", &mut conn).expect("phrase doğru");
+        let result = permanent_delete(id, "doomed.txt", false, &mut conn).expect("phrase doğru");
         assert_eq!(result.size_bytes, 17);
         assert!(result.blake3_first4kb_hex.is_some());
         assert!(!result.is_dir);
@@ -311,9 +325,42 @@ mod tests {
         let id = seed_staging(&conn, r"C:\Users\test\Report.PDF", &staged, 9);
 
         // Küçük harfli phrase, dosya adı büyük harfli — eşleşmeli
-        let result = permanent_delete(id, "report.pdf", &mut conn);
+        let result = permanent_delete(id, "report.pdf", false, &mut conn);
         assert!(result.is_ok());
         assert!(!staged.exists());
+
+        let _ = fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn secure_wipe_overwrites_then_deletes() {
+        let mut conn = fresh_db();
+        let work = unique_tmp("wipe");
+        fs::create_dir_all(&work).unwrap();
+        let staged = work.join("staged-secret.bin");
+        let sensitive = b"super sensitive payload 0123456789".repeat(100);
+        fs::write(&staged, &sensitive).unwrap();
+        let id = seed_staging(
+            &conn,
+            r"C:\Users\test\secret.bin",
+            &staged,
+            sensitive.len() as u64,
+        );
+
+        let result = permanent_delete(id, "secret.bin", true, &mut conn)
+            .expect("secure wipe başarılı olmalı");
+        assert!(!staged.exists(), "dosya silinmiş olmalı");
+        // Forensic kayıt yine yazıldı (hash + path)
+        let forensic_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM permanent_deletes_forensic \
+                 WHERE original_path = ?1",
+                params![r"C:\Users\test\secret.bin"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(forensic_count, 1);
+        assert_eq!(result.size_bytes, sensitive.len() as u64);
 
         let _ = fs::remove_dir_all(&work);
     }
