@@ -529,6 +529,24 @@ pub fn scan_to_tree_with_user_rules(
     scan_to_tree_with_progress(drive, user_rules, None, None)
 }
 
+/// Bölüm 5.5 — MFT yolu yalnız NTFS sürücülerde anlamlı. ReFS/exFAT/FAT32
+/// volumelerde `ntfs` crate boot sector parse'ı veya MFT record okuması
+/// fail eder; pre_flight FS bilgisini önceden kontrol edip MFT denemesini
+/// atlayarak ~3-5 sn boş wait + log gürültüsü tasarrufu yapılır. UNC
+/// (`\\server\share`) için pre_flight reddeder → otomatik false döner.
+fn is_mft_compatible(drive: &str) -> bool {
+    match crate::volume::pre_flight_check(drive) {
+        Ok(info) => {
+            let fs = info.file_system.to_uppercase();
+            // Yalnız NTFS desteklenir. Boş string (BitLocker locked vb.)
+            // bilinmeyendir; konservatif olarak true döneriz, MFT denenir
+            // ve hatalı volume'de fallback log'lar.
+            fs.is_empty() || fs == "NTFS"
+        }
+        Err(_) => true,
+    }
+}
+
 /// Bölüm 5.2A + 6.4 + 9.6.5 — strateji seçimi + canlı progress callback +
 /// opsiyonel iptal flag'i. `cancel.load() == true` periyodik kontrol
 /// edildiğinde walker `Error::Scan("scan-cancelled")` döner.
@@ -538,8 +556,9 @@ pub fn scan_to_tree_with_progress(
     progress_cb: Option<ProgressCb<'_>>,
     cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> crate::error::Result<(ScanSummary, ScanTree)> {
-    if is_elevated() {
-        debug!("elevated process — MFT yolu denenecek");
+    let mft_capable = is_mft_compatible(drive);
+    if is_elevated() && mft_capable {
+        debug!("elevated process + NTFS — MFT yolu denenecek");
         let collected = collect_mft_entries_with_progress(drive, progress_cb, cancel);
         match collected {
             Ok(c) => {
@@ -555,6 +574,9 @@ pub fn scan_to_tree_with_progress(
                 tracing::warn!(?e, "MFT path başarısız → fallback");
             }
         }
+    } else if is_elevated() && !mft_capable {
+        // Bölüm 5.5 — ReFS/exFAT/FAT32 sürücüde MFT yolu denemiyoruz.
+        debug!("elevated ama NTFS dışı — doğrudan fallback (Bölüm 5.5)");
     } else {
         debug!("elevated değil — fallback yolu");
     }
