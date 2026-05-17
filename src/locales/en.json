@@ -70,6 +70,7 @@
     "sortDataDesc": "Data size ↓",
     "stats": "{returned} / {total} items · {bytes}",
     "lodHidden": "{count} small files hidden for performance (LOD filter)",
+    "mode3DTitle": "3D layered sunburst — drag to rotate, wheel to zoom, click to drill",
     "staging": "Delete (recoverable for 24h)",
     "lockProbe": "Probe lock state",
     "loading": "Loading…"

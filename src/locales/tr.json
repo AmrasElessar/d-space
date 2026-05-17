@@ -70,6 +70,7 @@
     "sortDataDesc": "Veri boyutu ↓",
     "stats": "{returned} / {total} öğe · {bytes}",
     "lodHidden": "Performans için {count} küçük dosya gizlendi (Detay Seviye filtresi)",
+    "mode3DTitle": "3D katmanlı sunburst — sürükle döndür, tekerlek zoom, tıkla içeri gir",
     "staging": "Sil (24 saat içinde geri alınabilir)",
     "lockProbe": "Kilit durumunu sorgula",
     "loading": "Yükleniyor…"

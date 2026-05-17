@@ -8,6 +8,7 @@ import { setLocale, type SupportedLocale } from "./i18n";
 
 const { t, locale } = useI18n();
 import Sunburst from "./components/Sunburst.vue";
+import Sunburst3D from "./components/Sunburst3D.vue";
 import Treemap from "./components/Treemap.vue";
 import Bubble from "./components/Bubble.vue";
 import Timeline from "./components/Timeline.vue";
@@ -21,7 +22,7 @@ import IndexSearchBar from "./components/IndexSearchBar.vue";
 import UpdateNotification from "./components/UpdateNotification.vue";
 import InfoButton from "./components/InfoButton.vue";
 
-type ViewMode = "sunburst" | "treemap" | "bubble" | "timeline";
+type ViewMode = "sunburst" | "sunburst3d" | "treemap" | "bubble" | "timeline";
 
 interface AppInfo {
   name: string;
@@ -1820,6 +1821,15 @@ async function confirmPermDelete(item: StagedItem) {
         <button
           type="button"
           class="view-chip"
+          :class="{ 'view-chip-active': viewMode === 'sunburst3d' }"
+          @click="viewMode = 'sunburst3d'"
+          :title="t('drilldown.mode3DTitle')"
+        >
+          🎚 3D
+        </button>
+        <button
+          type="button"
+          class="view-chip"
           :class="{ 'view-chip-active': viewMode === 'treemap' }"
           @click="viewMode = 'treemap'"
         >
@@ -1847,6 +1857,12 @@ async function confirmPermDelete(item: StagedItem) {
         <Sunburst
           v-if="viewMode === 'sunburst'"
           key="sunburst"
+          :data="viewWindow"
+          @drill="drillInto"
+        />
+        <Sunburst3D
+          v-else-if="viewMode === 'sunburst3d'"
+          key="sunburst3d"
           :data="viewWindow"
           @drill="drillInto"
         />
