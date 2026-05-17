@@ -910,16 +910,53 @@ async function runWalk() {
   }
 }
 
+/// Bölüm 9.3 LOD threshold. Çocuk sayısı + parent aggregate'e bakarak
+/// "viewport'ta 1px'den küçük render edilecek" item'ları eler. 200
+/// node'luk render bütçesini hedefler; aggregate'in ~0.05%'i altı
+/// çocukları gizler. 0 dönerse threshold uygulanmaz.
+function computeLodThreshold(
+  totalChildren: number,
+  parentAggregate: number,
+): number {
+  if (totalChildren <= 200) return 0;
+  if (parentAggregate <= 0) return 0;
+  // ~%0.05 = 1/2000 → 1 GB parent → 500 KB altı item'ler gizlenir.
+  // Daha yoğun bucket'larda eşik artar.
+  const factor = Math.max(1, Math.floor(totalChildren / 200));
+  return Math.max(1024, Math.floor(parentAggregate / (2000 * factor)));
+}
+
+const lodHiddenCount = ref<number>(0);
+
 async function loadWindow(parentId: number) {
   windowLoading.value = true;
   windowError.value = null;
+  lodHiddenCount.value = 0;
   try {
-    const w = await invoke<WindowResult>("tree_window", {
+    let w = await invoke<WindowResult>("tree_window", {
       parent: parentId,
       sort: sortKey.value,
       limit: 200,
       offset: 0,
     });
+    // LOD: çocuk sayısı 200'ü geçiyorsa dinamik threshold ile yeniden sor.
+    if (w.total_children > 200) {
+      const threshold = computeLodThreshold(
+        w.total_children,
+        w.parent_aggregate_size,
+      );
+      if (threshold > 0) {
+        const w2 = await invoke<WindowResult>("tree_window", {
+          parent: parentId,
+          sort: sortKey.value,
+          limit: 200,
+          offset: 0,
+          minSizeBytes: threshold,
+        });
+        lodHiddenCount.value = w.total_children - w2.total_children;
+        w = w2;
+      }
+    }
     viewWindow.value = w;
     breadcrumb.value = await invoke<TreeNode[]>("tree_path", { id: parentId });
   } catch (err) {
@@ -1704,26 +1741,32 @@ async function confirmPermDelete(item: StagedItem) {
         </button>
       </div>
 
-      <Sunburst
-        v-if="viewMode === 'sunburst'"
-        :data="viewWindow"
-        @drill="drillInto"
-      />
-      <Treemap
-        v-else-if="viewMode === 'treemap'"
-        :data="viewWindow"
-        @drill="drillInto"
-      />
-      <Bubble
-        v-else-if="viewMode === 'bubble'"
-        :data="viewWindow"
-        @drill="drillInto"
-      />
-      <Timeline
-        v-else-if="viewMode === 'timeline'"
-        :data="viewWindow"
-        @drill="drillInto"
-      />
+      <Transition name="view-swap" mode="out-in">
+        <Sunburst
+          v-if="viewMode === 'sunburst'"
+          key="sunburst"
+          :data="viewWindow"
+          @drill="drillInto"
+        />
+        <Treemap
+          v-else-if="viewMode === 'treemap'"
+          key="treemap"
+          :data="viewWindow"
+          @drill="drillInto"
+        />
+        <Bubble
+          v-else-if="viewMode === 'bubble'"
+          key="bubble"
+          :data="viewWindow"
+          @drill="drillInto"
+        />
+        <Timeline
+          v-else-if="viewMode === 'timeline'"
+          key="timeline"
+          :data="viewWindow"
+          @drill="drillInto"
+        />
+      </Transition>
 
       <nav class="crumbs">
         <template v-for="(c, i) in breadcrumb" :key="c.id">
@@ -1759,6 +1802,13 @@ async function confirmPermDelete(item: StagedItem) {
               bytes: formatBytes(viewWindow.parent_aggregate_size),
             })
           }}
+        </span>
+        <span
+          v-if="lodHiddenCount > 0"
+          class="lod-badge"
+          :title="t('drilldown.lodHidden', { count: lodHiddenCount })"
+        >
+          🔍 LOD · −{{ lodHiddenCount }}
         </span>
       </div>
 
@@ -3221,6 +3271,48 @@ async function confirmPermDelete(item: StagedItem) {
 .drill-stats {
   font-size: 11px;
   color: var(--muted);
+}
+
+.lod-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.16);
+  color: #b45309;
+  border: 1px solid rgba(217, 119, 6, 0.5);
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+
+:root:not([data-theme="light"]) .lod-badge {
+  color: #fbbf24;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .lod-badge {
+    color: #b45309;
+  }
+}
+
+/* Bölüm 9.4 — viz mod swap transition. Görsel sürekliliği koru. */
+.view-swap-enter-from {
+  opacity: 0;
+  transform: scale(0.96);
+}
+.view-swap-leave-to {
+  opacity: 0;
+  transform: scale(1.04);
+}
+.view-swap-enter-active,
+.view-swap-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-swap-enter-active,
+  .view-swap-leave-active {
+    transition: none;
+  }
 }
 
 .drill-list {

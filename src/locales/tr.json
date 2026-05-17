@@ -58,6 +58,7 @@
     "sortNameAsc": "İsim ↑",
     "sortDataDesc": "Veri boyutu ↓",
     "stats": "{returned} / {total} öğe · {bytes}",
+    "lodHidden": "Performans için {count} küçük dosya gizlendi (Detay Seviye filtresi)",
     "staging": "Sil (24 saat içinde geri alınabilir)",
     "lockProbe": "Kilit durumunu sorgula",
     "loading": "Yükleniyor…"
