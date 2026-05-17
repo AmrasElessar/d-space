@@ -1,6 +1,6 @@
 {
   "name": "dspace",
-  "version": "0.2.0-beta",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "D-Space — Windows için akıllı disk analiz ve geri kazanım platformu",
