@@ -1932,7 +1932,12 @@ async function confirmPermDelete(item: StagedItem) {
       <p class="muted" v-if="stagingList.length === 0 && !stagingError">
         {{ t("staging.empty") }}
       </p>
-      <ul v-if="stagingList.length" class="staging-list">
+      <transition-group
+        v-if="stagingList.length"
+        tag="ul"
+        name="staging-row"
+        class="staging-list"
+      >
         <li v-for="item in stagingList" :key="item.id" class="staging-row-wrap">
           <div class="staging-row">
             <span class="staging-icon">{{ item.is_dir ? "📁" : "📄" }}</span>
@@ -2024,7 +2029,7 @@ async function confirmPermDelete(item: StagedItem) {
             </p>
           </div>
         </li>
-      </ul>
+      </transition-group>
       <p v-if="stagingError" class="err">{{ stagingError }}</p>
     </section>
 
@@ -3400,6 +3405,36 @@ async function confirmPermDelete(item: StagedItem) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Bekleyen Silmeler — dosya kuyruğa girip çıkarken yumuşak geçiş.
+   Enter: yandan kayarak gelir + opacity. Leave: sağa süzülerek gider
+   (silindi/geri alındı hissi). Move: re-order animasyonu. */
+.staging-row-enter-from {
+  opacity: 0;
+  transform: translateX(-14px);
+}
+
+.staging-row-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.staging-row-enter-active,
+.staging-row-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.staging-row-move {
+  transition: transform 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staging-row-enter-active,
+  .staging-row-leave-active,
+  .staging-row-move {
+    transition: none;
+  }
 }
 
 .staging-row {
