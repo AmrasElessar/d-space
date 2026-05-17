@@ -199,15 +199,15 @@ const errorText = computed<string>(() => {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 6px;
-  border: 1px solid var(--border-color, #4a4a55);
-  background: var(--surface-color, transparent);
-  color: var(--text-color, inherit);
+  border: 1px solid var(--border, #2a2c34);
+  background: var(--surface, transparent);
+  color: var(--fg, inherit);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .check-btn:hover:not(:disabled) {
-  background: var(--surface-hover-color, rgba(255, 255, 255, 0.06));
+  border-color: var(--fg, currentColor);
 }
 
 .check-btn:disabled {
@@ -226,13 +226,14 @@ const errorText = computed<string>(() => {
 }
 
 .update-modal {
-  background: var(--bg-color, #1e1e26);
-  color: var(--text-color, #ddd);
+  background: var(--surface, #14171c);
+  color: var(--fg, #e5e7eb);
   width: min(560px, 92vw);
   max-height: 80vh;
+  border: 1px solid var(--border, #1f242c);
   border-radius: 10px;
   padding: 24px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 20px 50px var(--shadow, rgba(0, 0, 0, 0.4));
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -245,7 +246,7 @@ const errorText = computed<string>(() => {
 }
 
 .current-line {
-  color: var(--muted-color, #888);
+  color: var(--muted, #9ca3af);
   font-size: 13px;
   margin: 0;
 }
@@ -253,9 +254,11 @@ const errorText = computed<string>(() => {
 .notes pre {
   white-space: pre-wrap;
   font-family: inherit;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg, rgba(0, 0, 0, 0.2));
+  color: var(--fg, inherit);
   padding: 8px 10px;
   border-radius: 6px;
+  border: 1px solid var(--border, transparent);
   font-size: 13px;
   max-height: 260px;
   overflow: auto;
@@ -281,10 +284,18 @@ const errorText = computed<string>(() => {
   color: white;
 }
 
+.actions .primary:hover:not(:disabled) {
+  background: #4d9aee;
+}
+
 .actions .secondary {
   background: transparent;
-  border-color: var(--border-color, #4a4a55);
-  color: var(--text-color, inherit);
+  border-color: var(--border, #2a2c34);
+  color: var(--fg, inherit);
+}
+
+.actions .secondary:hover {
+  border-color: var(--fg, currentColor);
 }
 
 .progress {
@@ -295,7 +306,7 @@ const errorText = computed<string>(() => {
 
 .progress-text {
   font-size: 12px;
-  color: var(--muted-color, #888);
+  color: var(--muted, #9ca3af);
 }
 
 .progress-bar {
@@ -309,6 +320,6 @@ const errorText = computed<string>(() => {
 .hint {
   font-size: 12px;
   margin: 4px 0 0;
-  color: var(--muted-color, #888);
+  color: var(--muted, #9ca3af);
 }
 </style>

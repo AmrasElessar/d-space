@@ -16,8 +16,10 @@
   },
   "badge": {
     "skipped": "{count} skipped",
-    "staging": "{count} staging",
-    "dbSchema": "DB v{version}"
+    "staging": "{count} pending",
+    "dbSchema": "DB v{version}",
+    "totalTitle": "Total: {total}",
+    "dirsFilesTitle": "{dirs} folders · {files} files"
   },
   "scan": {
     "title": "Full Scan",
@@ -29,27 +31,56 @@
     "liveEmpty": "Waiting for first results…"
   },
   "drilldown": {
-    "title": "Drilldown",
-    "viewMode": "View mode",
+    "title": "Folder View",
+    "intro": "A visual map of the current folder. Click a slice/cell to drill in; use the path strip above to step back out. Colors show each file's 'safe to delete' score — red = don't touch, green = easy to delete.",
+    "viewMode": "Visualization",
     "sortLabel": "Sort:",
     "sortSizeDesc": "Size ↓",
     "sortNameAsc": "Name ↑",
     "sortDataDesc": "Data size ↓",
-    "staging": "Send to staging (recoverable within 24h)",
-    "lockProbe": "Probe lock state (Section 34)",
+    "stats": "{returned} / {total} items · {bytes}",
+    "staging": "Delete (recoverable for 24h)",
+    "lockProbe": "Probe lock state",
     "loading": "Loading…"
   },
   "staging": {
-    "title": "Staging Queue",
-    "empty": "Nothing in staging yet. Use the 📥 button in drilldown to send items — recoverable with ↩ within 24 hours.",
+    "title": "Pending Deletes",
+    "subtitle": "Think of it like a trash can — but capped at 24 hours, with no auto-cleanup",
+    "confirm": "Confirm",
+    "intro": "Nothing you delete disappears immediately: it waits here for 24 hours. Realized it was a mistake? Hit ↩ Undo. For things you're sure about, use 🔥 to delete forever (double confirmation required). Expired items stay until you act on them — you stay in control.",
+    "empty": "Nothing deleted yet. Pick a file from the map on the left → use 📥 in the side panel to delete it (recoverable for 24h).",
     "undo": "↩ Undo",
     "undoTitle": "Restore to original path",
-    "permTitle": "Permanent delete (double confirmation, cannot be undone)",
-    "permWarn": "⚠ Permanent delete cannot be undone. A forensic ledger entry is written. To confirm, type the exact file name:",
+    "permTitle": "Delete forever (double confirmation, cannot be undone)",
+    "permWarn": "⚠ This cannot be undone; the file is gone forever and an audit-log entry is written. To confirm, type the exact file name:",
     "permPlaceholder": "Type file name",
-    "permGo": "Permanent delete",
+    "permGo": "Delete forever",
     "permBusy": "Deleting…",
-    "permCancel": "Cancel"
+    "permCancel": "Cancel",
+    "tierCross": "Across disks",
+    "tierNormal": "Same disk",
+    "tierCrossTitle": "Across-disk move — integrity-checked and atomic",
+    "tierNormalTitle": "Same-disk instant rename"
+  },
+  "detail": {
+    "title": "Selected Item",
+    "intro": "Click a file in the map on the left — size, last-modified, safety score, and quick actions appear here.",
+    "empty": "Pick a file from the map on the left → details open here.",
+    "size": "Size",
+    "data": "Data size",
+    "modified": "Last modified",
+    "score": "Score",
+    "rule": "Rule",
+    "lockProbe": "🔒 Probe lock state",
+    "cloudProbe": "☁ Probe cloud placeholder",
+    "sendStaging": "📥 Delete (recoverable for 24h)"
+  },
+  "scoreTier": {
+    "none": "—",
+    "danger": "DO NOT DELETE",
+    "caution": "REVIEW",
+    "likely": "SAFE",
+    "cache": "CACHE"
   },
   "conflict": {
     "title": "Conflict: {name}",

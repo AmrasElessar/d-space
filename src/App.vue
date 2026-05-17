@@ -267,11 +267,11 @@ const scanProgress = ref<ScanProgressEvent | null>(null);
 const selectedNode = ref<TreeNode | null>(null);
 
 function scoreTierLabelFor(score: number | null): string {
-  if (score === null) return "—";
-  if (score <= 30) return "DOKUNMA";
-  if (score <= 60) return "İNCELE";
-  if (score <= 85) return "BÜYÜK İHTİMAL";
-  return "CACHE";
+  if (score === null) return t("scoreTier.none");
+  if (score <= 30) return t("scoreTier.danger");
+  if (score <= 60) return t("scoreTier.caution");
+  if (score <= 85) return t("scoreTier.likely");
+  return t("scoreTier.cache");
 }
 
 async function probeCloud(node: TreeNode) {
@@ -1030,10 +1030,18 @@ function nodeFullPath(n: TreeNode): string {
   return `${letter}:\\${parts.join("\\")}`;
 }
 
+function localeTag(): string {
+  return locale.value === "tr" ? "tr-TR" : "en-US";
+}
+
 function formatTime(unix: number): string {
   if (!unix) return "—";
   const d = new Date(unix * 1000);
-  return d.toLocaleString("tr-TR");
+  return d.toLocaleString(localeTag());
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString(localeTag());
 }
 
 async function refreshStaging() {
@@ -1309,16 +1317,23 @@ async function confirmPermDelete(item: StagedItem) {
       <div v-if="scanSummary" class="badge-group">
         <span
           class="badge badge-blue"
-          :title="`Toplam: ${formatBytes(scanSummary.total_bytes)}`"
+          :title="
+            t('badge.totalTitle', { total: formatBytes(scanSummary.total_bytes) })
+          "
         >
           📊 {{ formatBytes(scanSummary.total_bytes) }}
         </span>
         <span
           class="badge badge-blue"
-          :title="`${scanSummary.file_count.toLocaleString('tr-TR')} dosya · ${scanSummary.dir_count.toLocaleString('tr-TR')} klasör`"
+          :title="
+            t('badge.dirsFilesTitle', {
+              dirs: formatNumber(scanSummary.dir_count),
+              files: formatNumber(scanSummary.file_count),
+            })
+          "
         >
-          📁 {{ scanSummary.dir_count.toLocaleString("tr-TR") }} ·
-          📄 {{ scanSummary.file_count.toLocaleString("tr-TR") }}
+          📁 {{ formatNumber(scanSummary.dir_count) }} ·
+          📄 {{ formatNumber(scanSummary.file_count) }}
         </span>
         <span
           v-if="walkStats && walkStats.skipped_errors > 0"
@@ -1504,28 +1519,28 @@ async function confirmPermDelete(item: StagedItem) {
         <div class="row">
           <span class="key">Tahmin</span>
           <span class="val mono">
-            {{ walkStats.total_records_estimate.toLocaleString("tr-TR") }} record
+            {{ walkStats.total_records_estimate.toLocaleString(localeTag()) }} record
           </span>
         </div>
         <div class="row">
           <span class="key">Gezildi</span>
           <span class="val mono">
-            {{ walkStats.records_visited.toLocaleString("tr-TR") }}
+            {{ walkStats.records_visited.toLocaleString(localeTag()) }}
           </span>
           <span class="pill pill-ok">
-            {{ walkStats.in_use_records.toLocaleString("tr-TR") }} in-use
+            {{ walkStats.in_use_records.toLocaleString(localeTag()) }} in-use
           </span>
         </div>
         <div class="row">
           <span class="key">Klasör</span>
           <span class="val mono">
-            {{ walkStats.directory_records.toLocaleString("tr-TR") }}
+            {{ walkStats.directory_records.toLocaleString(localeTag()) }}
           </span>
         </div>
         <div class="row">
           <span class="key">Dosya</span>
           <span class="val mono">
-            {{ walkStats.file_records.toLocaleString("tr-TR") }}
+            {{ walkStats.file_records.toLocaleString(localeTag()) }}
           </span>
         </div>
         <div class="row">
@@ -1598,19 +1613,19 @@ async function confirmPermDelete(item: StagedItem) {
         <div class="row">
           <span class="key">Düğüm</span>
           <span class="val mono">
-            {{ scanSummary.node_count.toLocaleString("tr-TR") }}
+            {{ scanSummary.node_count.toLocaleString(localeTag()) }}
           </span>
         </div>
         <div class="row">
           <span class="key">Dosya</span>
           <span class="val mono">
-            {{ scanSummary.file_count.toLocaleString("tr-TR") }}
+            {{ scanSummary.file_count.toLocaleString(localeTag()) }}
           </span>
         </div>
         <div class="row">
           <span class="key">Klasör</span>
           <span class="val mono">
-            {{ scanSummary.dir_count.toLocaleString("tr-TR") }}
+            {{ scanSummary.dir_count.toLocaleString(localeTag()) }}
           </span>
         </div>
         <div class="row">
@@ -1630,10 +1645,11 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section v-if="viewWindow" class="card">
-      <h2>Drilldown (Bölüm 9.6 viewport query)</h2>
+      <h2>{{ t("drilldown.title") }}</h2>
+      <p class="section-intro">{{ t("drilldown.intro") }}</p>
 
       <div class="view-mode-bar">
-        <span class="view-mode-label">Görüntü modu</span>
+        <span class="view-mode-label">{{ t("drilldown.viewMode") }}</span>
         <button
           type="button"
           class="view-chip"
@@ -1706,16 +1722,23 @@ async function confirmPermDelete(item: StagedItem) {
 
       <div class="drill-bar">
         <label class="sort-label">
-          Sırala:
+          {{ t("drilldown.sortLabel") }}
           <select v-model="sortKey" class="sort-select">
-            <option value="size_desc">Boyut ↓</option>
-            <option value="name_asc">İsim ↑</option>
-            <option value="data_size_desc">Veri boyutu ↓</option>
+            <option value="size_desc">{{ t("drilldown.sortSizeDesc") }}</option>
+            <option value="name_asc">{{ t("drilldown.sortNameAsc") }}</option>
+            <option value="data_size_desc">
+              {{ t("drilldown.sortDataDesc") }}
+            </option>
           </select>
         </label>
         <span class="drill-stats mono">
-          {{ viewWindow.returned }} / {{ viewWindow.total_children }} ·
-          {{ formatBytes(viewWindow.parent_aggregate_size) }}
+          {{
+            t("drilldown.stats", {
+              returned: viewWindow.returned,
+              total: viewWindow.total_children,
+              bytes: formatBytes(viewWindow.parent_aggregate_size),
+            })
+          }}
         </span>
       </div>
 
@@ -1780,7 +1803,7 @@ async function confirmPermDelete(item: StagedItem) {
                 :disabled="stagingBusyId === n.id"
                 @click="confirmStage(n)"
               >
-                ✓ Onayla
+                ✓ {{ t("staging.confirm") }}
               </button>
               <button
                 type="button"
@@ -1795,7 +1818,7 @@ async function confirmPermDelete(item: StagedItem) {
               type="button"
               class="stage-btn"
               :disabled="stagingBusyId === n.id"
-              title="Staging'e gönder (24h içinde geri alınabilir)"
+              :title="t('drilldown.staging')"
               @click="confirmStage(n)"
             >
               📥
@@ -1896,10 +1919,11 @@ async function confirmPermDelete(item: StagedItem) {
     </section>
 
     <section class="card">
-      <h2>Staging Kuyruğu (Bölüm 12)</h2>
+      <h2>{{ t("staging.title") }}</h2>
+      <p class="section-subtitle">{{ t("staging.subtitle") }}</p>
+      <p class="section-intro">{{ t("staging.intro") }}</p>
       <p class="muted" v-if="stagingList.length === 0 && !stagingError">
-        Henüz staging'e atılmış öğe yok. Drilldown'da 📥 butonu ile gönderebilirsin —
-        24 saat içinde ↩ ile geri alınabilir.
+        {{ t("staging.empty") }}
       </p>
       <ul v-if="stagingList.length" class="staging-list">
         <li v-for="item in stagingList" :key="item.id" class="staging-row-wrap">
@@ -1915,11 +1939,15 @@ async function confirmPermDelete(item: StagedItem) {
               "
               :title="
                 item.fallback_tier === 'cross_volume'
-                  ? 'Cross-volume two-phase commit (Bölüm 12.3): Blake3 hash verify + WAL + atomik rename'
-                  : 'Same-volume atomik rename (Bölüm 12.2)'
+                  ? t('staging.tierCrossTitle')
+                  : t('staging.tierNormalTitle')
               "
             >
-              {{ item.fallback_tier === "cross_volume" ? "2PC" : "MOVE" }}
+              {{
+                item.fallback_tier === "cross_volume"
+                  ? t("staging.tierCross")
+                  : t("staging.tierNormal")
+              }}
             </span>
             <span class="staging-size mono">{{ formatBytes(item.size_bytes) }}</span>
             <span class="staging-time mono">{{ formatTime(item.staged_at_unix) }}</span>
@@ -1927,16 +1955,16 @@ async function confirmPermDelete(item: StagedItem) {
               type="button"
               class="stage-btn"
               :disabled="stagingBusyId === item.id"
-              title="Orijinal yoluna geri taşı"
+              :title="t('staging.undoTitle')"
               @click="runUndo(item.id)"
             >
-              ↩ Undo
+              {{ t("staging.undo") }}
             </button>
             <button
               type="button"
               class="stage-btn perm-trigger"
               :disabled="permDeleteBusyId === item.id"
-              title="Kalıcı sil (çift onay gerekir, geri alınamaz)"
+              :title="t('staging.permTitle')"
               @click="startPermDelete(item)"
             >
               🔥
@@ -1948,8 +1976,7 @@ async function confirmPermDelete(item: StagedItem) {
             @click.stop
           >
             <div class="perm-warn">
-              ⚠ Kalıcı silme geri alınamaz. Forensic ledger'a kayıt düşer.
-              Onaylamak için tam dosya adını yaz:
+              {{ t("staging.permWarn") }}
               <code class="mono">{{ fileNameOf(item.original_path) }}</code>
             </div>
             <div class="perm-row">
@@ -1971,14 +1998,18 @@ async function confirmPermDelete(item: StagedItem) {
                 "
                 @click="confirmPermDelete(item)"
               >
-                {{ permDeleteBusyId === item.id ? "Siliniyor…" : "Kalıcı sil" }}
+                {{
+                  permDeleteBusyId === item.id
+                    ? t("staging.permBusy")
+                    : t("staging.permGo")
+                }}
               </button>
               <button
                 type="button"
                 class="stage-btn perm-cancel"
                 @click="cancelPermDelete"
               >
-                İptal
+                {{ t("staging.permCancel") }}
               </button>
             </div>
             <p v-if="permDeleteError" class="err perm-err">
@@ -2144,32 +2175,35 @@ async function confirmPermDelete(item: StagedItem) {
         <DuplicatePanel :drive="drive" :has-scan="scanSummary !== null" />
 
         <section class="card detail-card">
-          <h2>Seçili Öğe</h2>
+          <h2>{{ t("detail.title") }}</h2>
+          <p class="section-intro" v-if="!selectedNode">
+            {{ t("detail.intro") }}
+          </p>
           <template v-if="selectedNode">
             <p class="detail-name">
               {{ selectedNode.is_dir ? "📁" : "📄" }} {{ selectedNode.name }}
             </p>
             <p class="detail-path">{{ nodeFullPath(selectedNode) }}</p>
             <div class="detail-row">
-              <span class="detail-key">Boyut</span>
+              <span class="detail-key">{{ t("detail.size") }}</span>
               <span class="detail-val mono">
                 {{ formatBytes(selectedNode.aggregate_size) }}
               </span>
             </div>
             <div v-if="!selectedNode.is_dir" class="detail-row">
-              <span class="detail-key">Veri</span>
+              <span class="detail-key">{{ t("detail.data") }}</span>
               <span class="detail-val mono">
                 {{ formatBytes(selectedNode.data_size) }}
               </span>
             </div>
             <div class="detail-row">
-              <span class="detail-key">Değişim</span>
+              <span class="detail-key">{{ t("detail.modified") }}</span>
               <span class="detail-val mono">
                 {{ formatTime(selectedNode.modified_unix) }}
               </span>
             </div>
             <div class="detail-row">
-              <span class="detail-key">Skor</span>
+              <span class="detail-key">{{ t("detail.score") }}</span>
               <span class="detail-val">
                 <span
                   v-if="selectedNode.score !== null"
@@ -2183,7 +2217,7 @@ async function confirmPermDelete(item: StagedItem) {
               </span>
             </div>
             <div v-if="selectedNode.score_rule" class="detail-row">
-              <span class="detail-key">Kural</span>
+              <span class="detail-key">{{ t("detail.rule") }}</span>
               <span class="detail-val mono">{{ selectedNode.score_rule }}</span>
             </div>
             <p
@@ -2201,7 +2235,7 @@ async function confirmPermDelete(item: StagedItem) {
                 :disabled="lockProbeBusyId === selectedNode.id"
                 @click="probeLock(selectedNode)"
               >
-                🔒 Lock durumu sorgula
+                {{ t("detail.lockProbe") }}
               </button>
               <button
                 v-if="!selectedNode.is_dir"
@@ -2210,20 +2244,20 @@ async function confirmPermDelete(item: StagedItem) {
                 :disabled="cloudProbeBusyId === selectedNode.id"
                 @click="probeCloud(selectedNode)"
               >
-                ☁ Cloud placeholder sorgula
+                {{ t("detail.cloudProbe") }}
               </button>
               <button
                 type="button"
                 class="stage-btn"
                 @click="confirmStage(selectedNode)"
               >
-                📥 Staging'e gönder (24h undo)
+                {{ t("detail.sendStaging") }}
               </button>
             </div>
           </template>
           <div v-else class="detail-empty">
             <span class="detail-empty-emoji">👇</span>
-            Drilldown'da bir öğeye tıkla, detayı burada gör.
+            {{ t("detail.empty") }}
           </div>
         </section>
       </aside>
@@ -2778,12 +2812,29 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .card h2 {
-  margin: 0 0 14px;
+  margin: 0 0 4px;
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
   font-weight: 600;
+}
+
+.section-subtitle {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.section-intro {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg);
+  opacity: 0.85;
+  max-width: 64ch;
 }
 
 .grid {
