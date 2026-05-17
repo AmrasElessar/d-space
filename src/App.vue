@@ -2965,10 +2965,12 @@ async function confirmPermDelete(item: StagedItem) {
 
 .pill {
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
   letter-spacing: 0.04em;
-  font-weight: 600;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
 }
 
 .pill-frozen {
@@ -3034,22 +3036,28 @@ async function confirmPermDelete(item: StagedItem) {
 
 .probe-btn {
   padding: 8px 16px;
-  background: #1f6f7c;
-  border: 1px solid #2a8a99;
+  background: #2563eb;
+  border: 1px solid #1d4ed8;
   border-radius: 8px;
-  color: #e7fafe;
+  color: #ffffff;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s ease, border-color 0.15s ease,
+    transform 0.08s ease;
 }
 
 .probe-btn:hover:not(:disabled) {
-  background: #2a8a99;
+  background: #1d4ed8;
+  border-color: #1e40af;
+}
+
+.probe-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .probe-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -3801,9 +3809,9 @@ async function confirmPermDelete(item: StagedItem) {
 }
 
 .score-pill {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
   border-radius: 999px;
   text-align: center;
   letter-spacing: 0.04em;

@@ -272,17 +272,27 @@ onMounted(loadRules);
 
 .probe-btn {
   padding: 6px 14px;
-  background: #1f6f7c;
-  border: 1px solid #2a8a99;
+  background: #2563eb;
+  border: 1px solid #1d4ed8;
   border-radius: 6px;
-  color: #e7fafe;
+  color: #ffffff;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease,
+    transform 0.08s ease;
+}
+
+.probe-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.probe-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .probe-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
