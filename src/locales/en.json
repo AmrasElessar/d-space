@@ -26,7 +26,18 @@
     "intro": "Scans the selected drive from the root down to every file. In Fast Mode, 1 TB ≈ 5 sec (admin required); Standard Mode works everywhere. Results open in the visual map on the right.",
     "driveAria": "Drive letter",
     "buttonIdle": "Scan: {drive}:",
-    "buttonBusy": "Scanning {drive}…"
+    "buttonBusy": "Scanning {drive}…",
+    "uncBtn": "🌐 Network share",
+    "uncTitle": "UNC path (\\\\server\\share) scan — bandwidth heavy, use carefully",
+    "uncScanning": "🌐 Scanning…",
+    "uncDialogTitle": "Network Share (UNC) Scan",
+    "uncDialogHelp": "Enter an SMB/NAS network share path. SMB metadata is heavy so this is slower than local scans.",
+    "uncPlaceholder": "\\\\server\\share\\subfolder",
+    "uncRunBtn": "Scan",
+    "uncFiles": "Files",
+    "uncDirs": "Folders",
+    "uncTotalBytes": "Total",
+    "uncBandwidth": "Bandwidth (est.)"
   },
   "scanProgress": {
     "liveEmpty": "Waiting for first results…",

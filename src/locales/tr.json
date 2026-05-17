@@ -26,7 +26,18 @@
     "intro": "Seçtiğin sürücüyü kök klasörden taban dosyalara kadar tarar. Hızlı modda 1 TB ≈ 5 sn (yönetici gerekir); Standart modda her ortamda çalışır. Sonuç sağdaki görsel haritada açılır.",
     "driveAria": "Sürücü harfi",
     "buttonIdle": "Tara: {drive}:",
-    "buttonBusy": "Taranıyor {drive}…"
+    "buttonBusy": "Taranıyor {drive}…",
+    "uncBtn": "🌐 Ağ paylaşımı",
+    "uncTitle": "UNC path (\\\\server\\share) tarama — bandwidth yoğun, dikkatli kullan",
+    "uncScanning": "🌐 Taranıyor…",
+    "uncDialogTitle": "Ağ Paylaşımı (UNC) Tarama",
+    "uncDialogHelp": "Bir SMB/NAS ağ paylaşımının yolunu yaz. SMB metadata yoğunluğu sebebiyle yerel taramalardan daha yavaştır.",
+    "uncPlaceholder": "\\\\sunucu\\paylaşım\\altklasör",
+    "uncRunBtn": "Tara",
+    "uncFiles": "Dosya",
+    "uncDirs": "Klasör",
+    "uncTotalBytes": "Toplam",
+    "uncBandwidth": "Bandwidth (tahmini)"
   },
   "scanProgress": {
     "liveEmpty": "İlk veriler bekleniyor…",

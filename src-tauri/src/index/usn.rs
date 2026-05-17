@@ -230,6 +230,138 @@ pub fn parse_records(buf: &[u8], mut offset: usize) -> Result<Vec<UsnRecord>> {
     Ok(out)
 }
 
+/// USN journal okuma sonucu — caller watermark'ı bu `next_usn` ile günceller.
+#[derive(Debug, Clone)]
+pub struct JournalReadResult {
+    pub records: Vec<UsnRecord>,
+    pub next_usn: i64,
+    pub elapsed_ms: u64,
+}
+
+/// Gemini review 2.4 — event-driven USN journal okuma. Pozitif
+/// `timeout_100ns` ve >= 1 `bytes_to_wait_for` ile kernel IOCTL
+/// bekleyiş'i yapar; yeni USN kaydı gelene kadar **CPU kullanmadan**
+/// bloklar. 5 sn polling tamamen gereksizleşir.
+///
+/// Kullanım: caller volume_id (`\\.\C:`), mevcut watermark (next_usn,
+/// journal_id), timeout (örn. 60 sn = 600_000_000) verir; fonksiyon
+/// blocking DeviceIoControl çağırır; dönen records `apply_delta` ile
+/// DB'ye yazılır, `next_usn` yeni watermark olur.
+///
+/// Cancellation: timeout süresince blok eder. Hızlı iptal için
+/// `CancelIoEx` kullanılabilir (ayrı thread'den); minimum viable
+/// sürümünde timeout süresince dur.
+///
+/// Admin gerekir (`\\.\X:` raw volume open).
+#[cfg(windows)]
+pub fn read_journal_blocking(
+    volume_id: &str,
+    next_usn: i64,
+    journal_id: i64,
+    timeout_100ns: u64,
+    buffer_size: usize,
+) -> Result<JournalReadResult> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::time::Instant;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows::Win32::System::IO::DeviceIoControl;
+
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+    struct HandleGuard(HANDLE);
+    impl Drop for HandleGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+
+    let started = Instant::now();
+    let wide: Vec<u16> = OsStr::new(volume_id)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let pcwstr = PCWSTR(wide.as_ptr());
+    let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+
+    let handle = unsafe {
+        CreateFileW(
+            pcwstr,
+            GENERIC_READ,
+            share,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_BACKUP_SEMANTICS),
+            None,
+        )
+    }
+    .map_err(|e| Error::Index(format!("read_journal volume aç ({}): {:?}", volume_id, e)))?;
+    let _guard = HandleGuard(handle);
+
+    let request = build_read_journal_request(
+        next_usn,
+        USN_REASON_MASK,
+        0,             // ReturnOnlyOnClose = 0 (her event)
+        timeout_100ns, // Timeout: 0 = no-wait, >0 = blocking
+        1,             // BytesToWaitFor: 1 → herhangi bir kayıt gelince çık
+        journal_id,
+    );
+
+    let cap = buffer_size.max(8 + USN_RECORD_V2_HEADER_SIZE);
+    let mut buf = vec![0u8; cap];
+    let mut returned: u32 = 0;
+    unsafe {
+        DeviceIoControl(
+            handle,
+            FSCTL_READ_USN_JOURNAL,
+            Some(request.as_ptr() as *const _),
+            request.len() as u32,
+            Some(buf.as_mut_ptr() as *mut _),
+            buf.len() as u32,
+            Some(&mut returned),
+            None,
+        )
+    }
+    .map_err(|e| Error::Index(format!("FSCTL_READ_USN_JOURNAL: {:?}", e)))?;
+
+    if (returned as usize) < 8 {
+        return Ok(JournalReadResult {
+            records: Vec::new(),
+            next_usn,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        });
+    }
+
+    let new_next_usn = i64::from_le_bytes(buf[0..8].try_into().unwrap());
+    let records = parse_records(&buf[..returned as usize], 8)?;
+    Ok(JournalReadResult {
+        records,
+        next_usn: new_next_usn,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn read_journal_blocking(
+    _volume_id: &str,
+    _next_usn: i64,
+    _journal_id: i64,
+    _timeout_100ns: u64,
+    _buffer_size: usize,
+) -> Result<JournalReadResult> {
+    Err(Error::Index(
+        "read_journal_blocking yalnız Windows hedefinde desteklenir".into(),
+    ))
+}
+
 /// Test fixture'larında V2 record bayt buffer'ı kurmak için yardımcı.
 #[cfg(test)]
 pub(crate) fn build_v2_record(

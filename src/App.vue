@@ -323,6 +323,50 @@ const viewMode = ref<ViewMode>("sunburst");
 const permDeletePendingId = ref<number | null>(null);
 const permDeletePhrase = ref<string>("");
 const permDeleteSecure = ref<boolean>(false);
+
+interface NetworkScanResult {
+  unc_path: string;
+  file_count: number;
+  dir_count: number;
+  total_bytes: number;
+  bandwidth_used_bytes: number;
+  elapsed_ms: number;
+  partial: boolean;
+}
+
+const uncDialogOpen = ref<boolean>(false);
+const uncInput = ref<string>("\\\\");
+const uncBusy = ref<boolean>(false);
+const uncError = ref<string | null>(null);
+const uncResult = ref<NetworkScanResult | null>(null);
+
+function closeUncDialog() {
+  uncDialogOpen.value = false;
+  uncError.value = null;
+  uncResult.value = null;
+}
+
+async function runUncScan() {
+  if (uncBusy.value) return;
+  const path = uncInput.value.trim();
+  if (!path.startsWith("\\\\") || path.length < 4) {
+    uncError.value = "UNC formatı: \\\\sunucu\\paylaşım[\\altpath]";
+    return;
+  }
+  uncBusy.value = true;
+  uncError.value = null;
+  uncResult.value = null;
+  try {
+    uncResult.value = await invoke<NetworkScanResult>("scan_unc_path", {
+      uncPath: path,
+      bandwidthCapBps: 0,
+    });
+  } catch (err) {
+    uncError.value = formatIpcError(err);
+  } finally {
+    uncBusy.value = false;
+  }
+}
 const permDeleteBusyId = ref<number | null>(null);
 const permDeleteError = ref<string | null>(null);
 
@@ -1691,6 +1735,15 @@ async function confirmPermDelete(item: StagedItem) {
               : t("scan.buttonIdle", { drive })
           }}
         </button>
+        <button
+          type="button"
+          class="probe-btn unc-btn"
+          :disabled="scanning || uncBusy"
+          :title="t('scan.uncTitle')"
+          @click="uncDialogOpen = true"
+        >
+          {{ uncBusy ? t("scan.uncScanning") : t("scan.uncBtn") }}
+        </button>
         <span v-if="scanSummary" class="scan-quick mono">
           {{ strategyLabel(scanSummary.strategy) }} ·
           {{ scanSummary.collect_elapsed_ms + scanSummary.build_elapsed_ms }} ms
@@ -2299,6 +2352,75 @@ async function confirmPermDelete(item: StagedItem) {
     </div>
 
     <Onboarding :visible="onboardingVisible" @finish="finishOnboarding" />
+
+    <!-- Sprint 4.4 ek — UNC network paylaşımı tarama dialog. -->
+    <div
+      v-if="uncDialogOpen"
+      class="modal-backdrop"
+      @click.self="closeUncDialog"
+    >
+      <div class="modal unc-modal">
+        <h3 class="unc-title">
+          🌐 {{ t("scan.uncDialogTitle") }}
+        </h3>
+        <p class="unc-help">{{ t("scan.uncDialogHelp") }}</p>
+
+        <input
+          v-model="uncInput"
+          type="text"
+          class="unc-input mono"
+          spellcheck="false"
+          :placeholder="t('scan.uncPlaceholder')"
+          :disabled="uncBusy"
+          @keyup.enter="runUncScan"
+        />
+
+        <p v-if="uncError" class="err">{{ uncError }}</p>
+
+        <div v-if="uncResult" class="unc-result">
+          <div class="row">
+            <span class="key">{{ t("scan.uncFiles") }}</span>
+            <span class="val mono">{{ uncResult.file_count.toLocaleString(localeTag()) }}</span>
+          </div>
+          <div class="row">
+            <span class="key">{{ t("scan.uncDirs") }}</span>
+            <span class="val mono">{{ uncResult.dir_count.toLocaleString(localeTag()) }}</span>
+          </div>
+          <div class="row">
+            <span class="key">{{ t("scan.uncTotalBytes") }}</span>
+            <span class="val mono">{{ formatBytes(uncResult.total_bytes) }}</span>
+          </div>
+          <div class="row">
+            <span class="key">{{ t("scan.uncBandwidth") }}</span>
+            <span class="val mono">
+              ~{{ formatBytes(uncResult.bandwidth_used_bytes) }}
+            </span>
+          </div>
+          <div class="row">
+            <span class="key">{{ t("scanStats.elapsed") }}</span>
+            <span class="val mono">{{ uncResult.elapsed_ms }} ms</span>
+          </div>
+        </div>
+
+        <div class="unc-actions">
+          <button
+            type="button"
+            class="probe-btn"
+            :disabled="uncBusy || !uncInput.trim()"
+            @click="runUncScan"
+          >
+            {{ uncBusy ? t("scan.uncScanning") : t("scan.uncRunBtn") }}
+          </button>
+          <button
+            type="button"
+            class="stage-btn perm-cancel"
+            @click="closeUncDialog"
+          >
+            {{ t("staging.permCancel") }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Sprint 5.1 (Bölüm 13.2) — Tray Live Monitor alert toast. -->
     <transition name="tray-toast">
@@ -3993,6 +4115,89 @@ async function confirmPermDelete(item: StagedItem) {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* Modal generic — UNC dialog için (conflict-dialog ile aynı görsel). */
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 24px;
+  max-width: 560px;
+  width: calc(100% - 32px);
+  box-shadow: 0 12px 48px var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.unc-modal {
+  max-width: 600px;
+}
+
+.unc-title {
+  margin: 0;
+  font-size: 16px;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.unc-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.unc-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.unc-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.unc-result {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.unc-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.unc-btn {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #2563eb;
+}
+
+.unc-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.24);
+}
+
+:root:not([data-theme="light"]) .unc-btn {
+  color: #93c5fd;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .unc-btn {
+    color: #1d4ed8;
+  }
 }
 
 .conflict-title {

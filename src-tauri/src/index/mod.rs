@@ -40,7 +40,9 @@ pub use delta::{apply_delta, detect_wraparound, DeltaSummary};
 pub use persist::{
     load_watermark, save_entries, save_watermark, search as persist_search, Watermark,
 };
-pub use usn::{parse_record_v2, UsnRecord, USN_REASON_MASK};
+pub use usn::{
+    parse_record_v2, read_journal_blocking, JournalReadResult, UsnRecord, USN_REASON_MASK,
+};
 pub use watcher::{spawn_watcher, WatcherHandle};
 
 /// Tek bir USN index girişi. `volume_id` örn. `\\.\C:`, `file_ref`/`parent_ref`
