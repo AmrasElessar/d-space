@@ -11,7 +11,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import LiveSunburst from "./LiveSunburst.vue";
+import LiveSunburst3D from "./LiveSunburst3D.vue";
 
 interface PartialNode {
   id: number;
@@ -199,7 +199,7 @@ function splitPath(p: string): { parent: string; name: string } {
       <div class="scan-body">
         <!-- Sol kolon: canlı sunburst (Sprint 3.7) -->
         <div class="scan-visual">
-          <LiveSunburst
+          <LiveSunburst3D
             :partial-tree="latestPartialTree"
             :empty-message="t('scanProgress.liveEmpty')"
           />

@@ -1,0 +1,502 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  LiveSunburst3D — canlı tarama görseli (3D katmanlı, döndürülebilir).
+  ScanProgress.vue içinde 2D LiveSunburst yerine kullanılır.
+
+  PartialNode tree → her depth seviyesi ayrı Y katmanı:
+    depth 0 → merkez disk (root toplam)
+    depth 1 → iç halka  (yBase=4,  height=18)
+    depth 2 → dış halka (yBase=24, height=18) — katman görsel olarak
+              ayrı duruyor, kullanıcı yukarıdan-yandan açıkça görür.
+
+  Mouse drag → her yön döndürme; wheel → zoom; hover → wedge öne çıkar.
+
+  Performance: scan sırasında her 10k entry'de partial_tree gelir;
+  rebuildWedges idempotent, geometry dispose + recreate.
+-->
+<script setup lang="ts">
+import {
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+interface PartialNode {
+  id: number;
+  parent: number | null;
+  name: string;
+  aggregate_size: number;
+  depth: number;
+  is_dir: boolean;
+}
+
+const props = defineProps<{
+  partialTree: PartialNode[];
+  emptyMessage?: string;
+}>();
+
+const canvasRef = ref<HTMLCanvasElement | null>(null);
+const hoveredLabel = ref<string>("");
+
+const PALETTE = [
+  0x4e79a7, 0xf28e2c, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc949, 0xaf7aa1,
+  0xff9da7, 0x9c755f, 0xbab0ab, 0x5b8ff9, 0x5ad8a6,
+];
+
+const INNER_R = 28;
+const RING1_INNER = 36;
+const RING1_OUTER = 88;
+const RING2_INNER = 95;
+const RING2_OUTER = 145;
+const RING_HEIGHT = 18;
+const CENTER_HEIGHT = 5;
+const LAYER_GAP = 2;
+const RING1_Y = CENTER_HEIGHT + 1;
+const RING2_Y = RING1_Y + RING_HEIGHT + LAYER_GAP;
+const GAP_RAD = 0.01;
+
+interface SceneState {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  controls: OrbitControls;
+  raycaster: THREE.Raycaster;
+  pointer: THREE.Vector2;
+  wedges: THREE.Mesh[];
+  hovered: THREE.Mesh | null;
+  animation: number | null;
+}
+const sceneState = shallowRef<SceneState | null>(null);
+const isEmpty = ref<boolean>(true);
+
+function buildWedgeShape(
+  a1: number,
+  a2: number,
+  innerR: number,
+  outerR: number,
+): THREE.Shape {
+  const shape = new THREE.Shape();
+  shape.absarc(0, 0, outerR, a1, a2, false);
+  shape.absarc(0, 0, innerR, a2, a1, true);
+  return shape;
+}
+
+function colorFor(index: number): number {
+  return PALETTE[index % PALETTE.length];
+}
+
+function darken(hex: number, factor: number): number {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  const rr = Math.round(r * (1 - factor));
+  const gg = Math.round(g * (1 - factor));
+  const bb = Math.round(b * (1 - factor));
+  return (rr << 16) | (gg << 8) | bb;
+}
+
+function formatBytes(b: number): string {
+  if (b <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = b;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i >= 3 ? 1 : 0)} ${units[i]}`;
+}
+
+function buildScene(canvas: HTMLCanvasElement): SceneState {
+  const w = canvas.clientWidth || 360;
+  const h = canvas.clientHeight || 360;
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: true,
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h, false);
+
+  const scene = new THREE.Scene();
+  scene.background = null;
+
+  const camera = new THREE.PerspectiveCamera(50, w / h, 1, 2000);
+  camera.position.set(140, 160, 200);
+  camera.lookAt(0, 22, 0);
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambient);
+  const dir1 = new THREE.DirectionalLight(0xffffff, 0.85);
+  dir1.position.set(120, 200, 80);
+  scene.add(dir1);
+  const dir2 = new THREE.DirectionalLight(0xffffff, 0.35);
+  dir2.position.set(-80, 100, -120);
+  scene.add(dir2);
+
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+  controls.minDistance = 80;
+  controls.maxDistance = 500;
+  controls.target.set(0, 22, 0);
+  controls.update();
+
+  // Center disk — root toplam, koyu zemin.
+  const centerGeo = new THREE.CylinderGeometry(INNER_R, INNER_R, CENTER_HEIGHT, 48);
+  const centerMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2c34,
+    roughness: 0.6,
+    metalness: 0.12,
+  });
+  const center = new THREE.Mesh(centerGeo, centerMat);
+  center.position.y = CENTER_HEIGHT / 2;
+  scene.add(center);
+
+  return {
+    renderer,
+    scene,
+    camera,
+    controls,
+    raycaster: new THREE.Raycaster(),
+    pointer: new THREE.Vector2(),
+    wedges: [],
+    hovered: null,
+    animation: null,
+  };
+}
+
+function clearWedges(state: SceneState) {
+  for (const m of state.wedges) {
+    state.scene.remove(m);
+    m.geometry.dispose();
+    if (Array.isArray(m.material)) {
+      m.material.forEach((mat) => mat.dispose());
+    } else {
+      m.material.dispose();
+    }
+  }
+  state.wedges = [];
+}
+
+function rebuildWedges(state: SceneState, tree: PartialNode[]) {
+  clearWedges(state);
+  const root = tree.find((n) => n.depth === 0);
+  if (!root || root.aggregate_size <= 0) {
+    isEmpty.value = true;
+    return;
+  }
+  const total = root.aggregate_size;
+  const depth1 = tree
+    .filter((n) => n.depth === 1 && n.parent === root.id && n.aggregate_size > 0)
+    .sort((a, b) => b.aggregate_size - a.aggregate_size);
+  if (depth1.length === 0) {
+    isEmpty.value = true;
+    return;
+  }
+  isEmpty.value = false;
+
+  let angle = 0;
+  const parentSlots = new Map<number, { a1: number; a2: number; idx: number }>();
+
+  for (let i = 0; i < depth1.length; i++) {
+    const node = depth1[i];
+    const ratio = node.aggregate_size / total;
+    const a1 = angle;
+    const a2 = angle + ratio * Math.PI * 2;
+    angle = a2;
+    parentSlots.set(node.id, { a1, a2, idx: i });
+
+    const a1g = a1 + GAP_RAD / 2;
+    const a2g = a2 - GAP_RAD / 2;
+    if (a2g <= a1g) continue;
+
+    const shape = buildWedgeShape(a1g, a2g, RING1_INNER, RING1_OUTER);
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: RING_HEIGHT,
+      bevelEnabled: true,
+      bevelThickness: 1.2,
+      bevelSize: 0.8,
+      bevelSegments: 2,
+      curveSegments: Math.max(8, Math.floor((a2g - a1g) * 24)),
+    });
+    geo.rotateX(-Math.PI / 2);
+
+    const color = colorFor(i);
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.45,
+      metalness: 0.15,
+      emissive: 0x000000,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = RING1_Y;
+    mesh.userData = {
+      node,
+      baseColor: color,
+      baseY: RING1_Y,
+    };
+    state.scene.add(mesh);
+    state.wedges.push(mesh);
+  }
+
+  // Depth 2 — parent slot içinde dağıt, koyulaştırılmış renk.
+  const depth2ByParent = new Map<number, PartialNode[]>();
+  for (const n of tree) {
+    if (n.depth !== 2 || n.parent === null || n.aggregate_size <= 0) continue;
+    if (!parentSlots.has(n.parent)) continue;
+    const arr = depth2ByParent.get(n.parent) ?? [];
+    arr.push(n);
+    depth2ByParent.set(n.parent, arr);
+  }
+  for (const [pid, kids] of depth2ByParent.entries()) {
+    const slot = parentSlots.get(pid)!;
+    const parentNode = depth1.find((p) => p.id === pid);
+    if (!parentNode || parentNode.aggregate_size <= 0) continue;
+    const sorted = [...kids].sort((a, b) => b.aggregate_size - a.aggregate_size);
+    let kidAngle = slot.a1;
+    const slotSpan = slot.a2 - slot.a1;
+    for (const k of sorted) {
+      const ratio = k.aggregate_size / parentNode.aggregate_size;
+      const span = ratio * slotSpan;
+      const a1 = kidAngle;
+      const a2 = kidAngle + span;
+      kidAngle = a2;
+      const a1g = a1 + GAP_RAD / 2;
+      const a2g = a2 - GAP_RAD / 2;
+      if (a2g <= a1g) continue;
+
+      const shape = buildWedgeShape(a1g, a2g, RING2_INNER, RING2_OUTER);
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: RING_HEIGHT,
+        bevelEnabled: true,
+        bevelThickness: 1.2,
+        bevelSize: 0.8,
+        bevelSegments: 2,
+        curveSegments: Math.max(8, Math.floor((a2g - a1g) * 24)),
+      });
+      geo.rotateX(-Math.PI / 2);
+
+      const color = darken(colorFor(slot.idx), 0.2);
+      const mat = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.5,
+        metalness: 0.1,
+        emissive: 0x000000,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = RING2_Y;
+      mesh.userData = {
+        node: k,
+        baseColor: color,
+        baseY: RING2_Y,
+      };
+      state.scene.add(mesh);
+      state.wedges.push(mesh);
+    }
+  }
+}
+
+function onResize(state: SceneState, canvas: HTMLCanvasElement) {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (w === 0 || h === 0) return;
+  state.camera.aspect = w / h;
+  state.camera.updateProjectionMatrix();
+  state.renderer.setSize(w, h, false);
+}
+
+function setHover(state: SceneState, next: THREE.Mesh | null) {
+  if (state.hovered === next) return;
+  if (state.hovered) {
+    const mat = state.hovered.material as THREE.MeshStandardMaterial;
+    mat.emissive.setHex(0x000000);
+    state.hovered.position.y = state.hovered.userData.baseY;
+  }
+  state.hovered = next;
+  if (next) {
+    const mat = next.material as THREE.MeshStandardMaterial;
+    mat.emissive.setHex(0x222222);
+    next.position.y = (next.userData.baseY as number) + 3;
+    const node = next.userData.node as PartialNode;
+    hoveredLabel.value = `${node.is_dir ? "📁" : "📄"} ${node.name} · ${formatBytes(node.aggregate_size)}`;
+  } else {
+    hoveredLabel.value = "";
+  }
+}
+
+function onPointerMove(state: SceneState, canvas: HTMLCanvasElement, e: PointerEvent) {
+  const rect = canvas.getBoundingClientRect();
+  state.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  state.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  state.raycaster.setFromCamera(state.pointer, state.camera);
+  const hits = state.raycaster.intersectObjects(state.wedges, false);
+  if (hits.length > 0) {
+    setHover(state, hits[0].object as THREE.Mesh);
+  } else {
+    setHover(state, null);
+  }
+}
+
+let resizeObs: ResizeObserver | null = null;
+let pointerMoveHandler: ((e: PointerEvent) => void) | null = null;
+
+onMounted(() => {
+  if (!canvasRef.value) return;
+  const state = buildScene(canvasRef.value);
+  sceneState.value = state;
+
+  if (props.partialTree && props.partialTree.length > 0) {
+    rebuildWedges(state, props.partialTree);
+  }
+
+  const animate = () => {
+    state.controls.update();
+    state.renderer.render(state.scene, state.camera);
+    state.animation = requestAnimationFrame(animate);
+  };
+  state.animation = requestAnimationFrame(animate);
+
+  resizeObs = new ResizeObserver(() => {
+    if (canvasRef.value) onResize(state, canvasRef.value);
+  });
+  resizeObs.observe(canvasRef.value);
+
+  pointerMoveHandler = (e) => onPointerMove(state, canvasRef.value!, e);
+  canvasRef.value.addEventListener("pointermove", pointerMoveHandler);
+});
+
+onBeforeUnmount(() => {
+  const state = sceneState.value;
+  if (state) {
+    if (state.animation !== null) cancelAnimationFrame(state.animation);
+    clearWedges(state);
+    state.controls.dispose();
+    state.renderer.dispose();
+  }
+  if (resizeObs) resizeObs.disconnect();
+  if (canvasRef.value && pointerMoveHandler) {
+    canvasRef.value.removeEventListener("pointermove", pointerMoveHandler);
+  }
+});
+
+watch(
+  () => props.partialTree,
+  (next) => {
+    const state = sceneState.value;
+    if (state && next && next.length > 0) {
+      rebuildWedges(state, next);
+    }
+  },
+  { deep: false },
+);
+</script>
+
+<template>
+  <div class="live3d-wrap">
+    <canvas ref="canvasRef" class="live3d-canvas" />
+    <div class="live3d-hud" v-if="hoveredLabel">{{ hoveredLabel }}</div>
+    <div v-if="isEmpty" class="live3d-empty">
+      <div class="empty-disk"></div>
+      <p class="empty-text">{{ emptyMessage ?? "İlk veriler bekleniyor…" }}</p>
+    </div>
+    <div v-else class="live3d-hint">🖱 sürükle = döndür · tekerlek = zoom</div>
+  </div>
+</template>
+
+<style scoped>
+.live3d-wrap {
+  position: relative;
+  width: 360px;
+  height: 360px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.live3d-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.live3d-canvas:active {
+  cursor: grabbing;
+}
+
+.live3d-hud {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--fg);
+  font-family: ui-monospace, monospace;
+  box-shadow: 0 4px 10px var(--shadow);
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.live3d-hint {
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-size: 9px;
+  color: var(--muted);
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.live3d-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.empty-disk {
+  width: 100px;
+  height: 100px;
+  border: 2px dashed var(--border);
+  border-radius: 50%;
+  animation: empty-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes empty-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+}
+
+.empty-text {
+  margin: 0;
+  font-size: 12px;
+  font-style: italic;
+}
+</style>
