@@ -28,6 +28,10 @@ pub struct DuplicateGroup {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DuplicateStats {
+    /// Bulunan TOPLAM grup sayısı (truncate öncesi). UI'a dönen
+    /// `groups` vec'i `DuplicateOptions.max_groups` ile sınırlanmış
+    /// olabilir; kullanıcı "X grup daha var, filtreyi daralt"
+    /// mesajını bu fark ile gösterir.
     pub group_count: u64,
     pub redundant_bytes: u64,
     pub elapsed_ms: u64,

@@ -96,7 +96,17 @@
     "needsScan": "Önce yukarıdan tam tarama çalıştır. Aynı içerikli dosyalar boyut + hash eşleşmesi ile tespit edilir; gerçek alandan kazanım da burada raporlanır.",
     "minSize": "Min boyut",
     "scan": "Tara",
-    "scanBusy": "Taranıyor…"
+    "scanBusy": "Taranıyor…",
+    "filtered": "Filtrelendi",
+    "smallFiles": "küçük",
+    "groupCount": "Grup",
+    "reclaim": "Kazanım",
+    "canDelete": "silinebilir",
+    "hashErrors": "Hash hata",
+    "lockedHint": "kilitli dosya",
+    "hashErrorsTitle": "Bu dosyalar başka bir process tarafından açık tutulduğu için okunamadı. VSS aktif build'de bu hata düşer.",
+    "truncated": "{shown} / {total}",
+    "truncatedTitle": "Toplam {total} grup bulundu, performans için ilk {shown} gösteriliyor. Filtreyi sıkı tutarsan tümünü görürsün."
   },
   "detail": {
     "title": "Seçili Öğe",

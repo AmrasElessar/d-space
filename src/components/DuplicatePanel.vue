@@ -145,21 +145,46 @@ function toggle(hash: string) {
           </span>
         </div>
         <div class="row">
-          <span class="key">Filtrelendi</span>
-          <span class="val mono">{{ result.filtered_small.toLocaleString("tr-TR") }} küçük</span>
+          <span class="key">{{ t("duplicate.filtered") }}</span>
+          <span class="val mono">
+            {{ result.filtered_small.toLocaleString() }} {{ t("duplicate.smallFiles") }}
+          </span>
         </div>
         <div class="row">
-          <span class="key">Grup</span>
+          <span class="key">{{ t("duplicate.groupCount") }}</span>
           <span class="val mono">{{ result.stats.group_count }}</span>
+          <span
+            v-if="result.stats.group_count > result.groups.length"
+            class="pill pill-warn"
+            :title="
+              t('duplicate.truncatedTitle', {
+                shown: result.groups.length,
+                total: result.stats.group_count,
+              })
+            "
+          >
+            {{
+              t("duplicate.truncated", {
+                shown: result.groups.length,
+                total: result.stats.group_count,
+              })
+            }}
+          </span>
         </div>
         <div class="row">
-          <span class="key">Kazanım</span>
+          <span class="key">{{ t("duplicate.reclaim") }}</span>
           <span class="val mono">{{ formatBytes(result.stats.redundant_bytes) }}</span>
-          <span class="pill pill-ok">silinebilir</span>
+          <span class="pill pill-ok">{{ t("duplicate.canDelete") }}</span>
         </div>
         <div v-if="result.hash_errors > 0" class="row">
-          <span class="key">Hash hata</span>
+          <span class="key">{{ t("duplicate.hashErrors") }}</span>
           <span class="val mono">{{ result.hash_errors }}</span>
+          <span
+            class="pill pill-warn"
+            :title="t('duplicate.hashErrorsTitle')"
+          >
+            {{ t("duplicate.lockedHint") }}
+          </span>
         </div>
         <div class="row">
           <span class="key">Süre</span>

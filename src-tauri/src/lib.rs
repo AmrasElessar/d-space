@@ -609,6 +609,7 @@ async fn find_duplicates_cmd(
     drive: String,
     min_size_bytes: Option<u64>,
     size_only: Option<bool>,
+    max_groups: Option<usize>,
     state: tauri::State<'_, ScanTreeState>,
 ) -> Result<DuplicateScanResult> {
     let tree_arc = {
@@ -629,6 +630,7 @@ async fn find_duplicates_cmd(
         min_size_bytes: min_size_bytes.unwrap_or(crate::duplicate::DEFAULT_MIN_DUP_SIZE),
         size_only: size_only.unwrap_or(false),
         skip_head_prefilter: false,
+        max_groups: max_groups.unwrap_or(500),
     };
     // Hash I/O blocking — spawn_blocking ile asenkron.
     tokio::task::spawn_blocking(move || find_duplicates(&tree_arc, letter, opts))

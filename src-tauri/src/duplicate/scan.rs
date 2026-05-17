@@ -56,6 +56,16 @@ pub struct DuplicateOptions {
     /// karşılaştırması için. Üretimde default false (prefilter etkin).
     #[serde(default)]
     pub skip_head_prefilter: bool,
+    /// IPC payload üst limiti (kazanım sıralı). 1M dosyalık scan'de
+    /// 100k+ duplicate group olabilir; UI tarafına 50 MB JSON gönderirsek
+    /// frontend dondurur (Gemini review 2.1). Default 500 group;
+    /// kullanıcı filtre daralttıkça daha fazlasını çekebilir.
+    #[serde(default = "default_max_groups")]
+    pub max_groups: usize,
+}
+
+fn default_max_groups() -> usize {
+    500
 }
 
 impl Default for DuplicateOptions {
@@ -64,6 +74,7 @@ impl Default for DuplicateOptions {
             min_size_bytes: DEFAULT_MIN_DUP_SIZE,
             size_only: false,
             skip_head_prefilter: false,
+            max_groups: default_max_groups(),
         }
     }
 }
@@ -377,15 +388,27 @@ pub fn find_duplicates(
         })
         .sum();
 
+    let total_group_count = groups.len() as u64;
     let stats = DuplicateStats {
-        group_count: groups.len() as u64,
+        group_count: total_group_count,
         redundant_bytes,
         elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
+    // Gemini review 2.1 — IPC payload limiti. Gruplar zaten kazanım
+    // sıralı, top-N yeterli; geri kalanı kullanıcı `min_size_bytes`
+    // filtresini sıkı tutarak çekebilir.
+    let cap = opts.max_groups.clamp(50, 5_000);
+    let truncated = groups.len() > cap;
+    if truncated {
+        groups.truncate(cap);
+    }
+
     info!(
-        groups = stats.group_count,
-        reclaim_mb = stats.redundant_bytes / 1_048_576,
+        groups = total_group_count,
+        returned = groups.len(),
+        truncated,
+        reclaim_mb = redundant_bytes / 1_048_576,
         candidate_pairs,
         hash_errors,
         elapsed_ms = stats.elapsed_ms,
@@ -555,6 +578,7 @@ mod tests {
             min_size_bytes: DEFAULT_MIN_DUP_SIZE,
             size_only: true,
             skip_head_prefilter: false,
+            max_groups: 500,
         };
         let result = find_duplicates(&tree, 'C', opts).unwrap();
         assert_eq!(result.groups.len(), 2, "iki size bucket'ı bekleniyor");
@@ -614,6 +638,7 @@ mod tests {
             min_size_bytes: DEFAULT_MIN_DUP_SIZE,
             size_only: true,
             skip_head_prefilter: false,
+            max_groups: 500,
         };
         let result = find_duplicates(&tree, 'C', opts).unwrap();
         // Size_only: dört dosya aynı boyutta → tek bucket.
@@ -638,6 +663,7 @@ mod tests {
             min_size_bytes: DEFAULT_MIN_DUP_SIZE,
             size_only: false,
             skip_head_prefilter: true,
+            max_groups: 500,
         };
         let result = find_duplicates(&tree, 'C', opts).unwrap();
         // Path'ler diskte yok → hash hatası beklenir. Grup oluşmaz.

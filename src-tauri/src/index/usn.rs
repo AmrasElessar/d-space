@@ -83,6 +83,42 @@ pub const ERROR_JOURNAL_DELETE_IN_PROGRESS: u32 = 1_178;
 /// (truncation), wraparound → full re-enumerate.
 pub const ERROR_JOURNAL_ENTRY_DELETED: u32 = 1_181;
 
+/// `READ_USN_JOURNAL_DATA_V0` input boyutu — 6 alan, 40 bayt:
+///   USN StartUsn (8) + DWORD ReasonMask (4) + DWORD ReturnOnlyOnClose (4)
+///   + DWORDLONG Timeout (8) + DWORDLONG BytesToWaitFor (8)
+///   + DWORDLONG UsnJournalID (8) = 40
+pub const READ_USN_JOURNAL_DATA_V0_SIZE: usize = 40;
+
+/// `READ_USN_JOURNAL_DATA_V0` input bloğunu inşa eder. Gemini review 2.4 —
+/// event-driven watcher için: `timeout_100ns > 0` + `bytes_to_wait > 0`
+/// ile kernel IOCTL'i yeni USN entry beklemek üzere bloklar; polling
+/// gerek yok, batarya dostu.
+///
+/// `start_usn` = mevcut watermark next_usn.
+/// `reason_mask` = `USN_REASON_MASK` (filtre).
+/// `return_only_on_close` = 0 (her event'i yakala).
+/// `timeout_100ns` = 0 → no wait (eski polling); >0 → blocking.
+///   Birim 100 ns; 1 dk = 600_000_000.
+/// `bytes_to_wait_for` = 1 → herhangi bir kayıt gelince çık.
+/// `journal_id` = mevcut watermark journal_id.
+pub fn build_read_journal_request(
+    start_usn: i64,
+    reason_mask: u32,
+    return_only_on_close: u32,
+    timeout_100ns: u64,
+    bytes_to_wait_for: u64,
+    journal_id: i64,
+) -> [u8; READ_USN_JOURNAL_DATA_V0_SIZE] {
+    let mut buf = [0u8; READ_USN_JOURNAL_DATA_V0_SIZE];
+    buf[0..8].copy_from_slice(&start_usn.to_le_bytes());
+    buf[8..12].copy_from_slice(&reason_mask.to_le_bytes());
+    buf[12..16].copy_from_slice(&return_only_on_close.to_le_bytes());
+    buf[16..24].copy_from_slice(&timeout_100ns.to_le_bytes());
+    buf[24..32].copy_from_slice(&bytes_to_wait_for.to_le_bytes());
+    buf[32..40].copy_from_slice(&journal_id.to_le_bytes());
+    buf
+}
+
 /// USN_RECORD_V2 binary kaydının parse edilmiş hali. Sadece bizi
 /// ilgilendiren alanlar tutuluyor — TimeStamp/SecurityId atılıyor.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -339,6 +375,29 @@ mod tests {
         let raw: u64 = 0x0012_3456_789A_BCDE;
         let seg = segment_of(raw);
         assert_eq!(seg, 0x0000_3456_789A_BCDE_i64);
+    }
+
+    #[test]
+    fn build_read_journal_request_layout() {
+        let req = build_read_journal_request(
+            12_345_i64,      // StartUsn
+            USN_REASON_MASK, // ReasonMask
+            0,               // ReturnOnlyOnClose
+            600_000_000_u64, // Timeout (60 sn, 100ns birim)
+            1_u64,           // BytesToWaitFor
+            0x42_i64,        // UsnJournalID
+        );
+        assert_eq!(req.len(), READ_USN_JOURNAL_DATA_V0_SIZE);
+        assert_eq!(req.len(), 40);
+        // Field offset doğrulamaları
+        let start_usn = i64::from_le_bytes(req[0..8].try_into().unwrap());
+        assert_eq!(start_usn, 12_345);
+        let mask = u32::from_le_bytes(req[8..12].try_into().unwrap());
+        assert_eq!(mask, USN_REASON_MASK);
+        let timeout = u64::from_le_bytes(req[16..24].try_into().unwrap());
+        assert_eq!(timeout, 600_000_000);
+        let journal_id = i64::from_le_bytes(req[32..40].try_into().unwrap());
+        assert_eq!(journal_id, 0x42);
     }
 
     #[test]

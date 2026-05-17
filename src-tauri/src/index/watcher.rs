@@ -23,8 +23,11 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use tracing::{info, warn};
 
-/// Watcher poll aralığı — 5 sn.
-pub const WATCHER_POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// Watcher poll aralığı — 60 sn (Gemini review 2.4 — batarya dostu).
+/// İdeal: tamamen event-driven `FSCTL_READ_USN_JOURNAL` Timeout > 0
+/// (`read_journal_blocking` index/usn.rs); v0.3.1 prod wire bunu
+/// kullanacak. Bu polling interval scaffold için fallback.
+pub const WATCHER_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Watcher handle — drop ile thread kapatma sinyali yollar.
 pub struct WatcherHandle {

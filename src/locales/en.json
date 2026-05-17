@@ -96,7 +96,17 @@
     "needsScan": "Run a full scan first. Identical files are detected via size + hash match; the actual reclaimable space is reported here.",
     "minSize": "Min size",
     "scan": "Scan",
-    "scanBusy": "Scanning…"
+    "scanBusy": "Scanning…",
+    "filtered": "Filtered",
+    "smallFiles": "small",
+    "groupCount": "Groups",
+    "reclaim": "Reclaim",
+    "canDelete": "removable",
+    "hashErrors": "Hash errors",
+    "lockedHint": "locked files",
+    "hashErrorsTitle": "These files were held open by another process. With VSS build feature enabled, this error drops.",
+    "truncated": "{shown} / {total}",
+    "truncatedTitle": "Found {total} groups total; showing top {shown} for performance. Tighten the filter to see all."
   },
   "detail": {
     "title": "Selected Item",
