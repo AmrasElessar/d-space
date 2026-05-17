@@ -54,7 +54,7 @@ interface LogEntry {
   path: string;
 }
 const recentLog = ref<LogEntry[]>([]);
-const MAX_LOG = 10;
+const MAX_LOG = 60;
 let logSeq = 0;
 
 watch(
@@ -434,13 +434,14 @@ function splitPath(p: string): { parent: string; name: string } {
 .scan-log {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px 14px;
-  max-height: 260px;
+  padding: 10px 4px 10px 12px;
+  max-height: 320px;
   overflow: hidden;
+  min-height: 0;
 }
 
 .scan-log-head {
@@ -489,15 +490,17 @@ function splitPath(p: string): { parent: string; name: string } {
 }
 
 /* Şu an taranan: turkuaz vurgulu öne çıkmış satır, her zaman görünür.
-   Açık ve koyu temada okunabilir; background opaque (color-mix yerine
-   sabit rgba) — eski tarayıcı uyumluluğu için. */
+   Sticky → log scroll edilirken bile en üstte kalır. */
 .scan-current {
   display: block;
-  padding: 8px 10px;
+  padding: 6px 9px;
   border-left: 3px solid #24c8db;
   background: rgba(36, 200, 219, 0.12);
   border-radius: 4px;
-  min-height: 28px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-right: 8px;
 }
 
 .scan-current.muted {
@@ -505,12 +508,12 @@ function splitPath(p: string): { parent: string; name: string } {
   background: transparent;
   font-style: italic;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .log-name {
   display: block;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--fg);
   overflow: hidden;
@@ -521,50 +524,81 @@ function splitPath(p: string): { parent: string; name: string } {
 
 .log-parent {
   display: block;
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.3;
-  margin-top: 2px;
-}
-
-.scan-log-row {
-  display: block;
-  overflow: hidden;
-  opacity: 0.7;
-  transition: opacity 0.2s linear;
-  padding: 3px 6px;
-  border-radius: 2px;
-}
-
-/* Geçmiş satırlar — derinlere doğru sönümleniyor. */
-.scan-log-row:nth-child(n + 3) {
-  opacity: 0.5;
-}
-.scan-log-row:nth-child(n + 6) {
-  opacity: 0.32;
-}
-
-.log-name-sm {
-  display: block;
-  font-size: 12px;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.3;
-}
-
-.log-parent-sm {
-  display: block;
   font-size: 10px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.25;
+  margin-top: 1px;
+}
+
+.scan-log-list {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* WebKit/Chromium custom scrollbar — ince, hover'da daha görünür. */
+.scan-log-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scan-log-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scan-log-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.scan-log-list::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+.scan-log-row {
+  display: block;
+  overflow: hidden;
+  opacity: 0.78;
+  transition: opacity 0.2s linear;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+/* Geçmiş satırlar — derinlere doğru sönümleniyor. */
+.scan-log-row:nth-child(n + 4) {
+  opacity: 0.6;
+}
+.scan-log-row:nth-child(n + 8) {
+  opacity: 0.4;
+}
+.scan-log-row:nth-child(n + 12) {
+  opacity: 0.28;
+}
+
+.log-name-sm {
+  display: block;
+  font-size: 11px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.28;
+}
+
+.log-parent-sm {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .log-row-enter-from {
