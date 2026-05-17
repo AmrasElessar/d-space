@@ -27,7 +27,7 @@
 //   * `enumerate_volume_baseline` — yalnız `cfg(windows)` IO katmanı.
 
 use super::persist::{save_entries, save_watermark, Watermark};
-use super::usn::{parse_records, UsnRecord};
+use super::usn::{parse_records, read_le_i64, read_le_u64, UsnRecord};
 use super::{now_unix, IndexEntry};
 use crate::error::{Error, Result};
 use rusqlite::Connection;
@@ -82,13 +82,13 @@ pub fn parse_journal_data(buf: &[u8]) -> Result<JournalData> {
             JOURNAL_DATA_V0_SIZE
         )));
     }
-    let journal_id = i64::from_le_bytes(buf[0..8].try_into().unwrap());
-    let first_usn = i64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let next_usn = i64::from_le_bytes(buf[16..24].try_into().unwrap());
-    let lowest_valid_usn = i64::from_le_bytes(buf[24..32].try_into().unwrap());
-    let max_usn = i64::from_le_bytes(buf[32..40].try_into().unwrap());
-    let maximum_size = i64::from_le_bytes(buf[40..48].try_into().unwrap());
-    let allocation_delta = i64::from_le_bytes(buf[48..56].try_into().unwrap());
+    let journal_id = read_le_i64(buf, 0);
+    let first_usn = read_le_i64(buf, 8);
+    let next_usn = read_le_i64(buf, 16);
+    let lowest_valid_usn = read_le_i64(buf, 24);
+    let max_usn = read_le_i64(buf, 32);
+    let maximum_size = read_le_i64(buf, 40);
+    let allocation_delta = read_le_i64(buf, 48);
     Ok(JournalData {
         journal_id,
         first_usn,
@@ -123,7 +123,7 @@ pub fn parse_enum_buffer(buf: &[u8]) -> Result<(u64, Vec<UsnRecord>)> {
             ENUM_BUFFER_HEADER
         )));
     }
-    let next_ref = u64::from_le_bytes(buf[0..ENUM_BUFFER_HEADER].try_into().unwrap());
+    let next_ref = read_le_u64(buf, 0);
     let records = parse_records(buf, ENUM_BUFFER_HEADER)?;
     Ok((next_ref, records))
 }
@@ -389,11 +389,11 @@ mod tests {
     fn build_enum_request_layout() {
         let req = build_enum_request(0x1234_5678_9ABC, 0, i64::MAX);
         assert_eq!(req.len(), ENUM_REQUEST_V0_SIZE);
-        let start = u64::from_le_bytes(req[0..8].try_into().unwrap());
+        let start = read_le_u64(&req, 0);
         assert_eq!(start, 0x1234_5678_9ABC);
-        let low = i64::from_le_bytes(req[8..16].try_into().unwrap());
+        let low = read_le_i64(&req, 8);
         assert_eq!(low, 0);
-        let high = i64::from_le_bytes(req[16..24].try_into().unwrap());
+        let high = read_le_i64(&req, 16);
         assert_eq!(high, i64::MAX);
     }
 

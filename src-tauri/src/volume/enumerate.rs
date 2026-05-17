@@ -70,7 +70,7 @@ mod tests {
         }
         // Sıralı (artarak) ve tekrarsız.
         let mut sorted = letters.clone();
-        sorted.sort();
+        sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted, letters);
     }

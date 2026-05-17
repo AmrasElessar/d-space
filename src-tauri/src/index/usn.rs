@@ -83,6 +83,38 @@ pub const ERROR_JOURNAL_DELETE_IN_PROGRESS: u32 = 1_178;
 /// (truncation), wraparound → full re-enumerate.
 pub const ERROR_JOURNAL_ENTRY_DELETED: u32 = 1_181;
 
+/// Slice'tan sabit boyutlu array'e güvenli kopya — `from_le_bytes`
+/// helper'ları. Caller bounds'ı kontrol eder; `copy_from_slice` length
+/// mismatch'inde panic eder ama yapı kanıtlanabilir şekilde güvenli.
+/// `.try_into().unwrap()` pattern'ine göre clippy ve okur için temiz.
+#[inline]
+pub(super) fn read_le_i64(buf: &[u8], offset: usize) -> i64 {
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&buf[offset..offset + 8]);
+    i64::from_le_bytes(arr)
+}
+
+#[inline]
+pub(super) fn read_le_u64(buf: &[u8], offset: usize) -> u64 {
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&buf[offset..offset + 8]);
+    u64::from_le_bytes(arr)
+}
+
+#[inline]
+pub(super) fn read_le_u32(buf: &[u8], offset: usize) -> u32 {
+    let mut arr = [0u8; 4];
+    arr.copy_from_slice(&buf[offset..offset + 4]);
+    u32::from_le_bytes(arr)
+}
+
+#[inline]
+pub(super) fn read_le_u16(buf: &[u8], offset: usize) -> u16 {
+    let mut arr = [0u8; 2];
+    arr.copy_from_slice(&buf[offset..offset + 2]);
+    u16::from_le_bytes(arr)
+}
+
 /// `READ_USN_JOURNAL_DATA_V0` input boyutu — 6 alan, 40 bayt:
 ///   USN StartUsn (8) + DWORD ReasonMask (4) + DWORD ReturnOnlyOnClose (4)
 ///   + DWORDLONG Timeout (8) + DWORDLONG BytesToWaitFor (8)
@@ -155,9 +187,9 @@ pub fn parse_record_v2(buf: &[u8]) -> Result<(UsnRecord, usize)> {
             USN_RECORD_V2_HEADER_SIZE
         )));
     }
-    let record_length = u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize;
-    let major = u16::from_le_bytes(buf[4..6].try_into().unwrap());
-    let _minor = u16::from_le_bytes(buf[6..8].try_into().unwrap());
+    let record_length = read_le_u32(buf, 0) as usize;
+    let major = read_le_u16(buf, 4);
+    let _minor = read_le_u16(buf, 6);
     if major != 2 {
         return Err(Error::Index(format!(
             "Yalnız USN_RECORD_V2 destekleniyor, gelen MajorVersion={}",
@@ -171,15 +203,15 @@ pub fn parse_record_v2(buf: &[u8]) -> Result<(UsnRecord, usize)> {
             buf.len()
         )));
     }
-    let file_ref_raw = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let parent_ref_raw = u64::from_le_bytes(buf[16..24].try_into().unwrap());
-    let usn_id = i64::from_le_bytes(buf[24..32].try_into().unwrap());
+    let file_ref_raw = read_le_u64(buf, 8);
+    let parent_ref_raw = read_le_u64(buf, 16);
+    let usn_id = read_le_i64(buf, 24);
     // 32..40 TimeStamp — atlanıyor.
-    let reason = u32::from_le_bytes(buf[40..44].try_into().unwrap());
+    let reason = read_le_u32(buf, 40);
     // 44..48 SourceInfo, 48..52 SecurityId — atlanıyor.
-    let attributes = u32::from_le_bytes(buf[52..56].try_into().unwrap());
-    let name_length = u16::from_le_bytes(buf[56..58].try_into().unwrap()) as usize;
-    let name_offset = u16::from_le_bytes(buf[58..60].try_into().unwrap()) as usize;
+    let attributes = read_le_u32(buf, 52);
+    let name_length = read_le_u16(buf, 56) as usize;
+    let name_offset = read_le_u16(buf, 58) as usize;
 
     if name_offset + name_length > record_length {
         return Err(Error::Index(format!(
@@ -340,7 +372,7 @@ pub fn read_journal_blocking(
         });
     }
 
-    let new_next_usn = i64::from_le_bytes(buf[0..8].try_into().unwrap());
+    let new_next_usn = read_le_i64(&buf, 0);
     let records = parse_records(&buf[..returned as usize], 8)?;
     Ok(JournalReadResult {
         records,
@@ -522,13 +554,13 @@ mod tests {
         assert_eq!(req.len(), READ_USN_JOURNAL_DATA_V0_SIZE);
         assert_eq!(req.len(), 40);
         // Field offset doğrulamaları
-        let start_usn = i64::from_le_bytes(req[0..8].try_into().unwrap());
+        let start_usn = read_le_i64(&req, 0);
         assert_eq!(start_usn, 12_345);
-        let mask = u32::from_le_bytes(req[8..12].try_into().unwrap());
+        let mask = read_le_u32(&req, 8);
         assert_eq!(mask, USN_REASON_MASK);
-        let timeout = u64::from_le_bytes(req[16..24].try_into().unwrap());
+        let timeout = read_le_u64(&req, 16);
         assert_eq!(timeout, 600_000_000);
-        let journal_id = i64::from_le_bytes(req[32..40].try_into().unwrap());
+        let journal_id = read_le_i64(&req, 32);
         assert_eq!(journal_id, 0x42);
     }
 
